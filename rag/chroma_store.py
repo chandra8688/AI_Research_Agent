@@ -14,10 +14,13 @@ class ChromaStore:
         """
         # Ensure the directory exists (or ChromaDB will create it)
         self.persist_directory = persist_directory
-        self.client = chromadb.PersistentClient(path=persist_directory)
-        
-        # get_or_create_collection prevents duplicate errors on reload
-        self.collection = self.client.get_or_create_collection(name=collection_name)
+        try:
+            self.client = chromadb.PersistentClient(path=persist_directory)
+            # get_or_create_collection prevents duplicate errors on reload
+            self.collection = self.client.get_or_create_collection(name=collection_name)
+        except Exception as e:
+            from rag.errors import RetryableRetrievalError
+            raise RetryableRetrievalError(f"ChromaDB initialization failed: {str(e)}")
 
     def add_documents(self, chunks: list[Document], embeddings: list[np.ndarray]) -> None:
         """
@@ -87,11 +90,18 @@ class ChromaStore:
         n_results = min(k, total_docs)
         
         # ChromaDB query expects a list of lists for embeddings
-        results = self.collection.query(
-            query_embeddings=[query_embedding.tolist()],
-            n_results=n_results,
-            include=["documents", "metadatas", "distances"]
-        )
+        try:
+            results = self.collection.query(
+                query_embeddings=[query_embedding.tolist()],
+                n_results=n_results,
+                include=["documents", "metadatas", "distances"]
+            )
+        except ValueError as e:
+            from rag.errors import FatalRetrievalError
+            raise FatalRetrievalError(f"ChromaDB query value error: {str(e)}")
+        except Exception as e:
+            from rag.errors import RetryableRetrievalError
+            raise RetryableRetrievalError(f"ChromaDB search failed: {str(e)}")
         
         # Results are returned as lists of lists (one list per query)
         docs = results["documents"][0] if results["documents"] else []

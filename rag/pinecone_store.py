@@ -15,12 +15,18 @@ class PineconeStore:
         index_name = settings.pinecone_index_name
         
         if not api_key:
-            raise ValueError("pinecone_api_key configuration is missing or empty.")
+            from rag.errors import FatalRetrievalError
+            raise FatalRetrievalError("pinecone_api_key configuration is missing or empty.")
         if not index_name:
-            raise ValueError("pinecone_index_name configuration is missing or empty.")
+            from rag.errors import FatalRetrievalError
+            raise FatalRetrievalError("pinecone_index_name configuration is missing or empty.")
             
-        self.pc = Pinecone(api_key=api_key)
-        self.index = self.pc.Index(index_name)
+        try:
+            self.pc = Pinecone(api_key=api_key)
+            self.index = self.pc.Index(index_name)
+        except Exception as e:
+            from rag.errors import RetryableRetrievalError
+            raise RetryableRetrievalError(f"Pinecone initialization failed: {str(e)}")
 
     def add_documents(self, chunks: list[Document], embeddings: list[np.ndarray]) -> None:
         """
@@ -65,11 +71,18 @@ class PineconeStore:
         if k <= 0:
             return []
             
-        results = self.index.query(
-            vector=query_embedding.tolist(),
-            top_k=k,
-            include_metadata=True
-        )
+        try:
+            results = self.index.query(
+                vector=query_embedding.tolist(),
+                top_k=k,
+                include_metadata=True
+            )
+        except ValueError as e:
+            from rag.errors import FatalRetrievalError
+            raise FatalRetrievalError(f"Pinecone query value error: {str(e)}")
+        except Exception as e:
+            from rag.errors import RetryableRetrievalError
+            raise RetryableRetrievalError(f"Pinecone search failed: {str(e)}")
         
         returned_chunks = []
         for match in results.get("matches", []):

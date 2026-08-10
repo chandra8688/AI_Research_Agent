@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     
     # Vector DB Configuration
     vector_db: str = "chroma"
+    vector_db_fallback_enabled: bool = True
+    vector_db_fallback: str = "pinecone"
     chroma_persist_directory: str = ".chroma_db"
     pinecone_api_key: str | None = None
     pinecone_index_name: str | None = None
