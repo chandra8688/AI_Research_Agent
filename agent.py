@@ -156,6 +156,22 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
             state.tool_results.append({"name": fc.name, "result": result})
             if fc.name == "search_local_knowledge":
                 state.retrieved_evidence.append(result)
+                state.reflection_attempts += 1
+                
+                # Evaluate evidence
+                from reflection import evaluate_evidence
+                reflection = evaluate_evidence(prompt, state.retrieved_evidence)
+                state.reflection_result = reflection
+                print(f"[REFLECTION] sufficient={reflection.sufficient}, reason={reflection.reason}")
+                
+                if not reflection.sufficient:
+                    if state.reflection_attempts < 2:
+                        result = (f"{result}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
+                                  f"because: {reflection.reason}. Please refine your search query and call search_local_knowledge again.")
+                    else:
+                        result = (f"{result}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
+                                  f"because: {reflection.reason}. MAX RETRIEVAL ATTEMPTS REACHED. "
+                                  f"Please provide your final answer based only on what you have, or admit you do not know.")
 
             # Build and append the function response turn
             func_response_part = types.Part.from_function_response(
