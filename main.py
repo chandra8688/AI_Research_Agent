@@ -10,17 +10,20 @@ from agent import execute_agent
 def main():
     parser = argparse.ArgumentParser(description="AI Research Agent CLI")
     parser.add_argument("query", type=str, nargs="?", help="The research query to execute")
+    parser.add_argument("--interactive", action="store_true", help="Run in interactive session mode")
     args = parser.parse_args()
 
-    if not args.query:
+    if not args.interactive and not args.query:
         print("Usage: python main.py \"<your query>\"")
+        print("   or: python main.py --interactive")
         print("Example: python main.py \"What does the local documentation say about RAG?\"")
         sys.exit(0)
 
-    query = args.query.strip()
-    if not query:
-        print("Error: Query cannot be empty or whitespace.")
-        sys.exit(1)
+    if not args.interactive:
+        query = args.query.strip()
+        if not query:
+            print("Error: Query cannot be empty or whitespace.")
+            sys.exit(1)
 
     load_dotenv()
     
@@ -30,6 +33,32 @@ def main():
     except Exception as e:
         print(f"Error initializing local knowledge base: {e}")
         # Proceeding anyway as they might not need local knowledge for general queries.
+        
+    if args.interactive:
+        from memory import create_session
+        session = create_session()
+        print("\n" + "=" * 40)
+        print("AI RESEARCH AGENT (Interactive Mode)")
+        print("Type 'exit' or 'quit' to terminate.")
+        print("=" * 40 + "\n")
+        
+        while True:
+            try:
+                user_input = input("You: ").strip()
+                if not user_input:
+                    continue
+                if user_input.lower() in ["exit", "quit"]:
+                    break
+                
+                final_answer, state = execute_agent(user_input, session=session)
+                print(f"\nAgent: {final_answer}\n")
+            except (KeyboardInterrupt, EOFError):
+                break
+            except Exception as e:
+                print(f"\n[Error]: {e}\n")
+        
+        print("\nExiting interactive session.")
+        sys.exit(0)
         
     print("\n" + "=" * 40)
     print("AI RESEARCH AGENT")

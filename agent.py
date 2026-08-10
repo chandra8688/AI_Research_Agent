@@ -70,8 +70,9 @@ MAX_ITERATIONS = 5
 
 
 from state import AgentState
+from memory import AgentSession, create_session
 
-def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[str, AgentState]:
+def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS, session: AgentSession | None = None) -> tuple[str, AgentState]:
     """
     Runs a ReAct-style agent loop and returns both the final answer and the execution state.
     """
@@ -94,10 +95,22 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[st
     tool_config = types.Tool(function_declarations=FUNCTION_DECLARATIONS)
     config = types.GenerateContentConfig(tools=[tool_config])
 
-    # Initialise conversation history with the user prompt
-    contents = [
-        types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
-    ]
+    if session is None:
+        session = create_session()
+
+    # Add the current user prompt to the session memory
+    session.memory.add_user_message(prompt)
+
+    # Initialise conversation history with the bounded session memory
+    # We only take the last 10 messages to avoid blowing up the context window
+    MAX_CONTEXT_MESSAGES = 10
+    recent_messages = session.memory.get_messages()[-MAX_CONTEXT_MESSAGES:]
+    
+    contents = []
+    for msg in recent_messages:
+        contents.append(
+            types.Content(role=msg.role, parts=[types.Part.from_text(text=msg.content)])
+        )
     
     # Initialize explicit agent state
     state = AgentState(query=prompt, contents=contents)
@@ -216,6 +229,10 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[st
                 
             state.final_answer = final_text
             state.add_trace("final_answer")
+            
+            # Save assistant response to session memory
+            session.memory.add_assistant_message(final_text)
+            
             return final_text, state
 
     # 5. ITERATION GUARD (limit reached)
@@ -224,10 +241,10 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[st
     raise RuntimeError(err_msg)
 
 
-def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
+def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS, session: AgentSession | None = None) -> str:
     """
     Runs a ReAct-style agent loop.
     Returns only the final string answer to preserve existing behavior.
     """
-    answer, _ = execute_agent(prompt, max_iterations)
+    answer, _ = execute_agent(prompt, max_iterations, session)
     return answer
