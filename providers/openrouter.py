@@ -41,6 +41,14 @@ class OpenRouterProvider:
                     raise RuntimeError(f"Malformed OpenRouter response: {result}")
         except urllib.error.HTTPError as e:
             error_body = e.read().decode('utf-8')
-            raise RuntimeError(f"OpenRouter API HTTP Error {e.code}: {error_body}")
+            if e.code in [429, 500, 502, 503, 504]:
+                from .errors import RetryableProviderError
+                raise RetryableProviderError(f"OpenRouter API HTTP Error {e.code}: {error_body}")
+            from .errors import FatalProviderError
+            raise FatalProviderError(f"OpenRouter API HTTP Error {e.code}: {error_body}")
+        except urllib.error.URLError as e:
+            from .errors import RetryableProviderError
+            raise RetryableProviderError(f"OpenRouter network error: {str(e)}")
         except Exception as e:
-            raise RuntimeError(f"Unexpected error during OpenRouter LLM call: {str(e)}")
+            from .errors import FatalProviderError
+            raise FatalProviderError(f"Unexpected error during OpenRouter LLM call: {str(e)}")

@@ -5,10 +5,13 @@ class LLMProvider(Protocol):
     def generate(self, prompt: str) -> str:
         ...
 
-def get_provider() -> LLMProvider:
+def get_provider(name: str | None = None) -> LLMProvider:
     from config import settings
     
-    provider_name = settings.llm_provider.lower().strip()
+    if not name:
+        name = settings.llm_primary_provider or settings.llm_provider
+        
+    provider_name = name.lower().strip()
     
     if provider_name == "gemini":
         from .gemini import GeminiProvider

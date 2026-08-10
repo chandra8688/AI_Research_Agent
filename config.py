@@ -6,6 +6,10 @@ class Settings(BaseSettings):
     
     # LLM Provider Configuration
     llm_provider: str = "gemini"
+    llm_primary_provider: str | None = None
+    llm_fallback_provider: str = "openrouter"
+    llm_fallback_enabled: bool = False
+    
     gemini_api_key: str | None = None
     openrouter_api_key: str | None = None
     
