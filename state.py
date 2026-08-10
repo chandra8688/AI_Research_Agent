@@ -22,6 +22,7 @@ class AgentState:
     reflection_result: Any = None
     reflection_attempts: int = 0
     research_plan: Any = None
+    research_quality: Any = None
     trace: list[TraceEvent] = field(default_factory=list)
 
     def add_trace(self, event_type: str, details: dict = None):
@@ -80,9 +81,34 @@ def format_trace(state: AgentState) -> str:
                 
         elif event.event_type == "reflection":
             lines.append(f"[{idx}] REFLECTION")
-            lines.append(f"Status: {event.details.get('status', '')}")
-            if event.details.get('feedback'):
-                lines.append(f"Feedback: {event.details['feedback']}")
+            lines.append(f"Status: {event.details.get('status', 'unknown')}")
+            lines.append(f"Feedback: {event.details.get('feedback', '')}")
+            
+        elif event.event_type == "claim_extraction":
+            lines.append(f"[{idx}] CLAIM EXTRACTION")
+            lines.append(f"Extracted {event.details.get('count', 0)} claims.")
+
+        elif event.event_type == "claim_assessment":
+            lines.append(f"[{idx}] CLAIM ASSESSMENT")
+            lines.append(f"Claim: {event.details.get('claim', '')}")
+            lines.append(f"Supported: {event.details.get('supported', False)}")
+            lines.append(f"Reason: {event.details.get('reason', '')}")
+            
+        elif event.event_type == "grounding_check":
+            lines.append(f"[{idx}] GROUNDING CHECK")
+            lines.append(f"Supported: {event.details.get('supported_claims', 0)}/{event.details.get('claim_count', 0)}")
+            lines.append(f"Score: {event.details.get('grounding_score', 0.0)}")
+            if event.details.get('unsupported_claims'):
+                lines.append(f"Unsupported claims: {event.details.get('unsupported_claims')}")
+            if event.details.get('conflicts_detected'):
+                lines.append(f"Conflicts detected: {event.details.get('conflicts_detected')}")
+                
+        elif event.event_type == "citation_validation":
+            lines.append(f"[{idx}] CITATION VALIDATION")
+            if event.details.get('invalid_citations'):
+                lines.append(f"Invalid citations: {event.details.get('invalid_citations')}")
+            else:
+                lines.append("All citations valid.")
                 
         elif event.event_type == "final_answer":
             lines.append(f"[{idx}] FINAL ANSWER")

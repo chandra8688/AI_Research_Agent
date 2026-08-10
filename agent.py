@@ -290,18 +290,60 @@ def execute_agent(prompt: str, max_iterations: int | None = None, session: Agent
             )
             # Continue to next iteration
 
-        # -------------------------------------------------------------------
         # Branch B: LLM returned a final text answer → stop
         # -------------------------------------------------------------------
         else:
-            print("[FINAL ANSWER]")
             final_text = response.text
             
             # 7. FINAL OUTPUT VALIDATION
             if not isinstance(final_text, str) or not final_text.strip():
                 state.add_trace("agent_error", {"error": "Agent produced an empty final answer."})
                 raise RuntimeError("Agent produced an empty final answer.")
+
+            # Claim extraction & validation
+            from quality import extract_claims, assess_claims, validate_citations
+            claims = extract_claims(final_text)
+            state.add_trace("claim_extraction", {"count": len(claims)})
+
+            quality_report = assess_claims(claims, state.multi_source_evidence)
+            state.research_quality = quality_report
+            
+            # Add trace for each assessment
+            for assessment in quality_report.assessments:
+                state.add_trace("claim_assessment", {
+                    "claim": assessment.claim,
+                    "supported": assessment.supported,
+                    "reason": assessment.reason
+                })
+
+            state.add_trace("grounding_check", {
+                "claim_count": len(claims),
+                "supported_claims": len(claims) - len(quality_report.unsupported_claims),
+                "unsupported_claims": quality_report.unsupported_claims,
+                "grounding_score": quality_report.overall_grounding_score,
+                "conflicts_detected": quality_report.conflicts_detected
+            })
+
+            invalid_citations = validate_citations(final_text, state.multi_source_evidence)
+            state.add_trace("citation_validation", {"invalid_citations": invalid_citations})
+
+            refinement_attempted = getattr(state, "refinement_attempted", False)
+            if not refinement_attempted and (quality_report.unsupported_claims or invalid_citations):
+                state.refinement_attempted = True
                 
+                warning = "\n\n[SYSTEM GUIDANCE: GROUNDING WARNING]\n"
+                if quality_report.unsupported_claims:
+                    warning += "Some claims are not supported by the collected evidence. Remove or qualify unsupported claims.\n"
+                if invalid_citations:
+                    warning += "Some citations are invalid or do not match retrieved sources. Only cite retrieved sources exactly.\n"
+                warning += "Please revise your answer. This is your only refinement attempt."
+
+                state.contents.append(response.candidates[0].content)
+                state.contents.append(types.Content(role="user", parts=[types.Part.from_text(text=warning)]))
+                print(f"[REFINEMENT REQUIRED] Grounding score: {quality_report.overall_grounding_score}")
+                continue
+                
+            print("[FINAL ANSWER]")
             state.final_answer = final_text
             state.add_trace("final_answer")
             
