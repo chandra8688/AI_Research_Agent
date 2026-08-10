@@ -101,10 +101,12 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[st
     
     # Initialize explicit agent state
     state = AgentState(query=prompt, contents=contents)
+    state.add_trace("agent_start", {"query": prompt})
 
     for iteration in range(1, max_iterations + 1):
         print(f"\n[AGENT ITERATION {iteration}]")
         state.iteration = iteration
+        state.add_trace("iteration_start")
 
         try:
             response = client.models.generate_content(
@@ -113,6 +115,7 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[st
                 config=config,
             )
         except errors.APIError as e:
+            state.add_trace("agent_error", {"error": f"Gemini API Error: {str(e)}"})
             raise RuntimeError(f"Gemini API Error: {str(e)}")
 
         # -------------------------------------------------------------------
@@ -139,6 +142,7 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[st
             
             # Record tool call in state
             state.tool_calls.append({"name": fc.name, "args": kwargs})
+            state.add_trace("tool_call", {"tool_name": fc.name, "arguments": kwargs})
 
             # 3 & 4. TOOL ARGUMENT VALIDATION & EXECUTION ERROR HANDLING
             try:
@@ -163,6 +167,8 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[st
             
             # Record tool result in state (8. STATE ERROR RECORDING)
             state.tool_results.append({"name": fc.name, "result": result})
+            result_str = str(result)
+            state.add_trace("tool_result", {"result_preview": result_str[:300] + ('...' if len(result_str) > 300 else '')})
             
             # Reflection processing
             if fc.name == "search_local_knowledge" and not str(result).startswith("Error:"):
@@ -174,6 +180,7 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[st
                 reflection = evaluate_evidence(prompt, state.retrieved_evidence)
                 state.reflection_result = reflection
                 print(f"[REFLECTION] sufficient={reflection.sufficient}, reason={reflection.reason}")
+                state.add_trace("reflection", {"status": "sufficient" if reflection.sufficient else "insufficient", "feedback": reflection.reason})
                 
                 # 6. REFLECTION GUARD
                 if not reflection.sufficient:
@@ -204,15 +211,17 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[st
             
             # 7. FINAL OUTPUT VALIDATION
             if not isinstance(final_text, str) or not final_text.strip():
+                state.add_trace("agent_error", {"error": "Agent produced an empty final answer."})
                 raise RuntimeError("Agent produced an empty final answer.")
                 
             state.final_answer = final_text
+            state.add_trace("final_answer")
             return final_text, state
 
     # 5. ITERATION GUARD (limit reached)
-    raise RuntimeError(
-        f"Agent did not produce a final answer within {max_iterations} iterations."
-    )
+    err_msg = f"Agent did not produce a final answer within {max_iterations} iterations."
+    state.add_trace("agent_error", {"error": err_msg})
+    raise RuntimeError(err_msg)
 
 
 def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:

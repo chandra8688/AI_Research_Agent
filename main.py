@@ -2,6 +2,7 @@ import sys
 import argparse
 from dotenv import load_dotenv
 from google.genai import errors
+import time
 
 from rag.pipeline import initialize_knowledge_base
 from agent import execute_agent
@@ -41,6 +42,7 @@ def main():
     # We want to capture output nicely. `execute_agent` prints to stdout.
     # We will let it print normally, but if it fails, handle it gracefully.
     try:
+        start_time = time.time()
         final_answer, state = execute_agent(query)
     except ValueError as e:
         print(f"\n[Agent Error]: {e}")
@@ -64,27 +66,23 @@ def main():
         print(f"\n[Unexpected Error]: {e}")
         sys.exit(1)
 
+    end_time = time.time()
+    duration = end_time - start_time
+    
+    print("\n" + "-" * 40)
+    print("SUMMARY")
+    print("-" * 40)
+    print(f"Query: {query}")
+    print(f"Iterations: {state.iteration}")
+    print(f"Tool calls: {len(state.tool_calls)}")
+    print(f"Retrieved chunks: {len(state.retrieved_evidence)}")
+    print(f"Reflection attempts: {state.reflection_attempts}")
+    print(f"Duration: {duration:.2f}s")
+    
     print("\n" + "-" * 40)
     print("FINAL ANSWER")
     print("-" * 40 + "\n")
     print(final_answer)
-
-    print("\n" + "-" * 40)
-    print("SUMMARY")
-    print("-" * 40)
-    print(f"Iterations: {state.iteration}")
-    
-    tools_used = list(set([tc["name"] for tc in state.tool_calls]))
-    if tools_used:
-        print(f"Tools used: {', '.join(tools_used)}")
-    else:
-        print("Tools used: None")
-        
-    if state.retrieved_evidence:
-        print(f"Evidence retrieved: {len(state.retrieved_evidence)} chunk(s)")
-        
-    if state.reflection_attempts > 0:
-        print(f"Reflection attempts: {state.reflection_attempts}")
 
     print("\n" + "=" * 40)
 
