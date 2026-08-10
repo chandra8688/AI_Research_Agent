@@ -21,19 +21,9 @@ def generate_rag_answer(query: str, chunks: list[Document]) -> str:
         
     context_str = "\n".join(context_parts)
     
-    prompt = f"""You are a helpful and precise assistant. 
-You will be provided with a set of retrieved document chunks as context, followed by a user query.
-
-Your task is to answer the query using ONLY the provided context.
-- If the answer is present in the context, provide a detailed and clear explanation.
-- Where practical, cite the source of your information using the bracketed document source name (e.g., "[rag_overview.txt]").
-- If the context does NOT contain enough information to answer the query, you MUST state that the information is not available in the provided context. Do NOT invent or infer an answer from outside knowledge.
-
-CONTEXT:
-{context_str}
-
-USER QUERY:
-{query}
-"""
+    from langchain_integration import get_rag_prompt_template
+    prompt_template = get_rag_prompt_template()
+    prompt_value = prompt_template.invoke({"context": context_str, "query": query})
+    prompt = prompt_value.to_string()
 
     return call_llm(prompt)

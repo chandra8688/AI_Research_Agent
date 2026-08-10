@@ -5,8 +5,9 @@ pydantic
 ddgs
 sentence-transformers
 chromadb
-pinecone-client
+pinecone
 fastapi
 uvicorn
 pydantic-settings
 langgraph
+langchain-core
