@@ -9,3 +9,4 @@ pinecone-client
 fastapi
 uvicorn
 pydantic-settings
+langgraph
