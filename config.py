@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     pinecone_api_key: str | None = None
     pinecone_index_name: str | None = None
     
+    # Retrieval Fusion Configuration
+    retrieval_fusion_enabled: bool = False
+    retrieval_fusion_top_k: int = 5
+    retrieval_final_k: int = 3
+    
     # Agent/API Constraints
     max_message_length: int = 10000
     max_agent_iterations: int = 5
