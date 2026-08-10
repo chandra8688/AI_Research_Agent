@@ -3,14 +3,14 @@ import os
 from rag.loader import load_documents
 from rag.chunker import chunk_documents
 from rag.embedder import embed_chunks
-from rag.store import VectorStore
+from rag.store import VectorStore, get_vector_store
 
-def initialize_knowledge_base(docs_dir: str = "docs", db_path: str = ".chroma_db") -> VectorStore:
+def initialize_knowledge_base(docs_dir: str = "docs") -> VectorStore:
     """
     Initializes the local RAG knowledge base if it does not exist.
     Otherwise, returns a VectorStore instance pointing to the existing database.
     """
-    store = VectorStore(persist_directory=db_path)
+    store = get_vector_store()
     
     # If the collection already has chunks, we assume it's initialized.
     # Note: store.count() will return > 0 if data exists.

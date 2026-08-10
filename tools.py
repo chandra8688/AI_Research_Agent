@@ -53,7 +53,7 @@ def search_local_knowledge(query: str) -> str:
     try:
         from rag.loader import Document
         from rag.embedder import embed_chunks
-        from rag.store import VectorStore
+        from rag.store import get_vector_store
         
         # We need a quick dummy chunk to embed the query since embed_chunks expects a list of Documents
         query_chunk = Document(content=query.strip(), metadata={})
@@ -62,7 +62,7 @@ def search_local_knowledge(query: str) -> str:
         if not query_embedding:
             return "Error: could not generate embedding for query."
             
-        store = VectorStore(persist_directory=".chroma_db")
+        store = get_vector_store()
         if store.count() == 0:
             return "Error: local vector database is empty. No documents available to search."
             
