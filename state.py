@@ -20,6 +20,7 @@ class AgentState:
     final_answer: str | None = None
     reflection_result: Any = None
     reflection_attempts: int = 0
+    research_plan: Any = None
     trace: list[TraceEvent] = field(default_factory=list)
 
     def add_trace(self, event_type: str, details: dict = None):
@@ -36,7 +37,15 @@ def format_trace(state: AgentState) -> str:
     lines = ["=" * 50, "AGENT TRACE", "=" * 50, ""]
     
     for idx, event in enumerate(state.trace, 1):
-        if event.event_type == "agent_start":
+        if event.event_type == "research_plan":
+            lines.append(f"[{idx}] RESEARCH PLAN")
+            lines.append(f"Intent: {event.details.get('intent', '')}")
+            lines.append(f"Requires web: {event.details.get('requires_web', False)}")
+            lines.append(f"Requires local: {event.details.get('requires_local_knowledge', False)}")
+            lines.append(f"Requires calculation: {event.details.get('requires_calculation', False)}")
+            lines.append(f"Multi-source: {event.details.get('requires_multi_source_research', False)}")
+
+        elif event.event_type == "agent_start":
             lines.append(f"[{idx}] AGENT START")
             lines.append(f"Query: {event.details.get('query', '')}")
             

@@ -97,6 +97,9 @@ def execute_agent(prompt: str, max_iterations: int | None = None, session: Agent
     tool_config = types.Tool(function_declarations=FUNCTION_DECLARATIONS)
     config = types.GenerateContentConfig(tools=[tool_config])
 
+    from planning import create_research_plan
+    plan = create_research_plan(prompt)
+
     if session is None:
         session = create_session()
 
@@ -113,9 +116,35 @@ def execute_agent(prompt: str, max_iterations: int | None = None, session: Agent
         contents.append(
             types.Content(role=msg.role, parts=[types.Part.from_text(text=msg.content)])
         )
+        
+    # Inject research plan guidance
+    guidance = "\n\n[SYSTEM GUIDANCE based on intent classification]:\n"
+    if plan.requires_local_knowledge:
+        guidance += "- Local knowledge should be considered. Consider using search_local_knowledge.\n"
+    if plan.requires_web:
+        guidance += "- Web search should be considered. Consider using search_web.\n"
+    if plan.requires_calculation:
+        guidance += "- Calculation is required. Consider using calculate_product.\n"
+    if not plan.requires_local_knowledge and not plan.requires_web and not plan.requires_calculation:
+        guidance += "- No specialized tools required. Allow direct answering.\n"
+        
+    # Append guidance to the last user message in contents (which is the current prompt)
+    if contents and contents[-1].role == "user":
+        contents[-1].parts[0].text += guidance
     
     # Initialize explicit agent state
     state = AgentState(query=prompt, contents=contents)
+    state.research_plan = plan
+    
+    plan_details = {
+        "intent": plan.intent,
+        "requires_web": plan.requires_web,
+        "requires_local_knowledge": plan.requires_local_knowledge,
+        "requires_calculation": plan.requires_calculation,
+        "requires_multi_source_research": plan.requires_multi_source_research,
+        "step_count": len(plan.steps)
+    }
+    state.add_trace("research_plan", plan_details)
     state.add_trace("agent_start", {"query": prompt})
 
     for iteration in range(1, max_iterations + 1):
