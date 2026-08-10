@@ -2,13 +2,14 @@ import os
 from google import genai
 from google.genai import errors
 from google.genai import types
-from tools import calculate_product
+from tools import calculate_product, search_web
 
 # ---------------------------------------------------------------------------
 # Tool Registry: maps function name → local Python callable
 # ---------------------------------------------------------------------------
 TOOL_REGISTRY = {
     "calculate_product": calculate_product,
+    "search_web": search_web,
 }
 
 # ---------------------------------------------------------------------------
@@ -25,6 +26,25 @@ FUNCTION_DECLARATIONS = [
                 "b": {"type": "INTEGER", "description": "The second integer"},
             },
             "required": ["a", "b"],
+        },
+    ),
+    types.FunctionDeclaration(
+        name="search_web",
+        description=(
+            "Searches the web for information on a given query using DuckDuckGo. "
+            "Returns a list of results with title, URL, and a short snippet. "
+            "Use this when you need current or specific external information to answer a question."
+        ),
+        parameters={
+            "type": "OBJECT",
+            "properties": {
+                "query": {"type": "STRING", "description": "The search query string"},
+                "max_results": {
+                    "type": "INTEGER",
+                    "description": "Maximum number of results to return (1-10, default 3)",
+                },
+            },
+            "required": ["query"],
         },
     ),
 ]
@@ -90,11 +110,22 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
 
             # Extract arguments and execute locally
             kwargs = dict(fc.args)
-            args_display = ", ".join(f"{k}={v}" for k, v in kwargs.items())
+            args_display = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
             print(f"[TOOL CALL] {fc.name}({args_display})")
 
-            result = tool_fn(**{k: int(v) for k, v in kwargs.items()})
-            print(f"[TOOL RESULT] {result}")
+            # Dispatch: cast args to the right types per tool
+            if fc.name == "calculate_product":
+                typed_kwargs = {k: int(v) for k, v in kwargs.items()}
+            elif fc.name == "search_web":
+                typed_kwargs = {
+                    "query": str(kwargs["query"]),
+                    **({"max_results": int(kwargs["max_results"])} if "max_results" in kwargs else {}),
+                }
+            else:
+                typed_kwargs = kwargs  # fallback: pass raw strings
+
+            result = tool_fn(**typed_kwargs)
+            print(f"[TOOL RESULT] {str(result)[:300]}{'...' if len(str(result)) > 300 else ''}")
 
             # Build and append the function response turn
             func_response_part = types.Part.from_function_response(
