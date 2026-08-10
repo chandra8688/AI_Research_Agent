@@ -82,6 +82,15 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
 
     Raises RuntimeError if max_iterations is reached without a final answer.
     """
+    # 1. INPUT VALIDATION
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError("Agent prompt must be a non-empty string.")
+    prompt = prompt.strip()
+
+    # 5. ITERATION GUARD (input validation)
+    if not isinstance(max_iterations, int) or max_iterations < 1:
+        raise ValueError("max_iterations must be greater than 0.")
+
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise ValueError("GEMINI_API_KEY environment variable is missing or empty.")
@@ -122,15 +131,15 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
             # Append the model's function-call turn to history
             state.contents.append(response.candidates[0].content)
 
-            # Route to registered tool
+            # Route to registered tool (2. TOOL NAME VALIDATION)
             tool_fn = TOOL_REGISTRY.get(fc.name)
             if tool_fn is None:
                 raise RuntimeError(
-                    f"LLM requested unknown tool '{fc.name}'. "
-                    "Add it to TOOL_REGISTRY in agent.py."
+                    f"Unknown tool requested: '{fc.name}'. "
+                    "Only functions explicitly present in TOOL_REGISTRY may execute."
                 )
 
-            # Extract arguments and execute locally
+            # Extract arguments
             kwargs = dict(fc.args)
             args_display = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
             print(f"[TOOL CALL] {fc.name}({args_display})")
@@ -138,23 +147,32 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
             # Record tool call in state
             state.tool_calls.append({"name": fc.name, "args": kwargs})
 
-            # Dispatch: cast args to the right types per tool
-            if fc.name == "calculate_product":
-                typed_kwargs = {k: int(v) for k, v in kwargs.items()}
-            elif fc.name == "search_web":
-                typed_kwargs = {
-                    "query": str(kwargs["query"]),
-                    **({"max_results": int(kwargs["max_results"])} if "max_results" in kwargs else {}),
-                }
-            else:
-                typed_kwargs = kwargs  # fallback: pass raw strings
+            # 3 & 4. TOOL ARGUMENT VALIDATION & EXECUTION ERROR HANDLING
+            try:
+                # Dispatch: cast args to the right types per tool
+                if fc.name == "calculate_product":
+                    typed_kwargs = {k: int(v) for k, v in kwargs.items()}
+                elif fc.name == "search_web":
+                    typed_kwargs = {
+                        "query": str(kwargs["query"]),
+                        **({"max_results": int(kwargs["max_results"])} if "max_results" in kwargs else {}),
+                    }
+                else:
+                    typed_kwargs = kwargs  # fallback: pass raw strings
 
-            result = tool_fn(**typed_kwargs)
+                result = tool_fn(**typed_kwargs)
+            except Exception as e:
+                # Controlled error instead of crashing
+                result = f"Error: Tool execution failed: {str(e)}"
+                print(f"[TOOL ERROR] {result}")
+
             print(f"[TOOL RESULT] {str(result)[:300]}{'...' if len(str(result)) > 300 else ''}")
             
-            # Record tool result in state
+            # Record tool result in state (8. STATE ERROR RECORDING)
             state.tool_results.append({"name": fc.name, "result": result})
-            if fc.name == "search_local_knowledge":
+            
+            # Reflection processing
+            if fc.name == "search_local_knowledge" and not str(result).startswith("Error:"):
                 state.retrieved_evidence.append(result)
                 state.reflection_attempts += 1
                 
@@ -164,6 +182,7 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
                 state.reflection_result = reflection
                 print(f"[REFLECTION] sufficient={reflection.sufficient}, reason={reflection.reason}")
                 
+                # 6. REFLECTION GUARD
                 if not reflection.sufficient:
                     if state.reflection_attempts < 2:
                         result = (f"{result}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
@@ -188,10 +207,16 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
         # -------------------------------------------------------------------
         else:
             print("[FINAL ANSWER]")
-            state.final_answer = response.text
-            return response.text
+            final_text = response.text
+            
+            # 7. FINAL OUTPUT VALIDATION
+            if not isinstance(final_text, str) or not final_text.strip():
+                raise RuntimeError("Agent produced an empty final answer.")
+                
+            state.final_answer = final_text
+            return final_text
 
-    # If we exit the loop without a final answer, guard kicked in
+    # 5. ITERATION GUARD (limit reached)
     raise RuntimeError(
         f"Agent did not produce a final answer within {max_iterations} iterations."
     )
