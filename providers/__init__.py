@@ -6,7 +6,9 @@ class LLMProvider(Protocol):
         ...
 
 def get_provider() -> LLMProvider:
-    provider_name = os.getenv("LLM_PROVIDER", "gemini").lower().strip()
+    from config import settings
+    
+    provider_name = settings.llm_provider.lower().strip()
     
     if provider_name == "gemini":
         from .gemini import GeminiProvider

@@ -9,13 +9,15 @@ class PineconeStore:
         Initializes the Pinecone client and connects to the specified index.
         Requires PINECONE_API_KEY and PINECONE_INDEX_NAME environment variables.
         """
-        api_key = os.getenv("PINECONE_API_KEY")
-        index_name = os.getenv("PINECONE_INDEX_NAME")
+        from config import settings
+        
+        api_key = settings.pinecone_api_key
+        index_name = settings.pinecone_index_name
         
         if not api_key:
-            raise ValueError("PINECONE_API_KEY environment variable is missing or empty.")
+            raise ValueError("pinecone_api_key configuration is missing or empty.")
         if not index_name:
-            raise ValueError("PINECONE_INDEX_NAME environment variable is missing or empty.")
+            raise ValueError("pinecone_index_name configuration is missing or empty.")
             
         self.pc = Pinecone(api_key=api_key)
         self.index = self.pc.Index(index_name)

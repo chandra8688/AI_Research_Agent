@@ -66,13 +66,12 @@ FUNCTION_DECLARATIONS = [
 ]
 
 MODEL = "gemini-3.5-flash"
-MAX_ITERATIONS = 5
-
 
 from state import AgentState
 from memory import AgentSession, create_session
+from config import settings
 
-def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS, session: AgentSession | None = None) -> tuple[str, AgentState]:
+def execute_agent(prompt: str, max_iterations: int | None = None, session: AgentSession | None = None) -> tuple[str, AgentState]:
     """
     Runs a ReAct-style agent loop and returns both the final answer and the execution state.
     """
@@ -81,11 +80,14 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS, session: Ag
         raise ValueError("Agent prompt must be a non-empty string.")
     prompt = prompt.strip()
 
+    if max_iterations is None:
+        max_iterations = settings.max_agent_iterations
+
     # 5. ITERATION GUARD (input validation)
     if not isinstance(max_iterations, int) or max_iterations < 1:
         raise ValueError("max_iterations must be greater than 0.")
 
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = settings.gemini_api_key
     if not api_key:
         raise ValueError("GEMINI_API_KEY environment variable is missing or empty.")
 
@@ -197,7 +199,7 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS, session: Ag
                 
                 # 6. REFLECTION GUARD
                 if not reflection.sufficient:
-                    if state.reflection_attempts < 2:
+                    if state.reflection_attempts < settings.max_reflection_attempts:
                         result = (f"{result}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
                                   f"because: {reflection.reason}. Please refine your search query and call search_local_knowledge again.")
                     else:
@@ -241,7 +243,7 @@ def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS, session: Ag
     raise RuntimeError(err_msg)
 
 
-def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS, session: AgentSession | None = None) -> str:
+def run_agent(prompt: str, max_iterations: int | None = None, session: AgentSession | None = None) -> str:
     """
     Runs a ReAct-style agent loop.
     Returns only the final string answer to preserve existing behavior.

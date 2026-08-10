@@ -1,11 +1,15 @@
 from fastapi import APIRouter, HTTPException, status
 from pydantic import ValidationError
+import logging
 
-from api.models import ChatRequest, ChatResponse, HealthResponse, DeleteSessionResponse
+from config import settings
+from api.models import ChatRequest, ChatResponse, HealthResponse, DeleteSessionResponse, ReadyResponse, ConfigResponse
 from memory import AgentSession, create_session
 from agent import execute_agent
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
 
 # In-memory session registry
 sessions: dict[str, AgentSession] = {}
@@ -14,20 +18,53 @@ sessions: dict[str, AgentSession] = {}
 def health_check():
     return HealthResponse(status="ok")
 
+@router.get("/ready", response_model=ReadyResponse)
+def readiness_check():
+    provider = settings.llm_provider.lower().strip()
+    vector_db = settings.vector_db.lower().strip()
+    
+    # Check Provider
+    if provider == "gemini" and not settings.gemini_api_key:
+        raise HTTPException(status_code=503, detail="Gemini provider selected but no GEMINI_API_KEY found.")
+    elif provider == "openrouter" and not settings.openrouter_api_key:
+        raise HTTPException(status_code=503, detail="OpenRouter provider selected but no OPENROUTER_API_KEY found.")
+        
+    # Check Vector DB
+    if vector_db == "pinecone" and not settings.pinecone_api_key:
+        raise HTTPException(status_code=503, detail="Pinecone vector DB selected but no PINECONE_API_KEY found.")
+        
+    return ReadyResponse(status="ready", llm_provider=provider, vector_db=vector_db)
+
+@router.get("/config", response_model=ConfigResponse)
+def get_config():
+    return ConfigResponse(
+        environment=settings.environment,
+        llm_provider=settings.llm_provider,
+        vector_db=settings.vector_db,
+        max_agent_iterations=settings.max_agent_iterations,
+        max_reflection_attempts=settings.max_reflection_attempts,
+        max_message_length=settings.max_message_length
+    )
+
 @router.post("/chat", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest):
     message = request.message.strip()
     if not message:
         raise HTTPException(status_code=400, detail="Message cannot be empty or whitespace.")
+        
+    if len(message) > settings.max_message_length:
+        raise HTTPException(status_code=400, detail=f"Message exceeds maximum allowed length of {settings.max_message_length} characters.")
 
     # Session handling
     if request.session_id:
         session = sessions.get(request.session_id)
         if not session:
+            logger.warning(f"Session ID {request.session_id} not found.")
             raise HTTPException(status_code=404, detail="Session ID not found.")
     else:
         session = create_session()
         sessions[session.session_id] = session
+        logger.info(f"Created new session: {session.session_id}")
 
     try:
         # Note: execute_agent returns (final_answer, state)
@@ -40,12 +77,15 @@ def chat_endpoint(request: ChatRequest):
             tool_calls=len(state.tool_calls)
         )
     except ValueError as e:
+        logger.warning(f"Validation error during agent execution: {e}")
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
         # Safe controlled runtime errors from agent
+        logger.error(f"Runtime error during agent execution: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         # Catch unexpected errors without exposing internals
+        logger.exception("Unexpected error during agent execution.")
         raise HTTPException(status_code=500, detail="An unexpected error occurred during execution.")
 
 @router.delete("/sessions/{session_id}", response_model=DeleteSessionResponse)

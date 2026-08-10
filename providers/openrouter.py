@@ -4,11 +4,13 @@ import urllib.request
 import urllib.error
 
 class OpenRouterProvider:
-    def generate(self, prompt: str) -> str:
-        api_key = os.getenv("OPENROUTER_API_KEY")
-        if not api_key:
+    def __init__(self):
+        from config import settings
+        self.api_key = settings.openrouter_api_key
+        if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is missing or empty.")
-            
+
+    def generate(self, prompt: str) -> str:
         url = "https://openrouter.ai/api/v1/chat/completions"
         
         # Using a reliable free model on OpenRouter
@@ -20,7 +22,7 @@ class OpenRouterProvider:
         }
         
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "https://github.com/google/ai-research-agent",
             "X-Title": "AI Research Agent"

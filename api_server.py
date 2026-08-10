@@ -5,6 +5,12 @@ from dotenv import load_dotenv
 from api.routes import router
 from rag.pipeline import initialize_knowledge_base
 
+from config import settings
+import logging
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s:\t%(name)s - %(message)s")
+logger = logging.getLogger(__name__)
+
 # Load env variables for Gemini/Pinecone before running the server
 load_dotenv()
 
@@ -14,15 +20,10 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS configuration for local development
+# CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173"
-    ],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -33,10 +34,12 @@ app.include_router(router)
 @app.on_event("startup")
 def startup_event():
     # Initialize the local RAG knowledge base safely
+    logger.info(f"Starting {settings.app_name} in {settings.environment} mode.")
+    logger.info(f"LLM Provider: {settings.llm_provider} | Vector DB: {settings.vector_db}")
     try:
         initialize_knowledge_base()
     except Exception as e:
-        print(f"Warning: Failed to initialize local knowledge base during startup: {e}")
+        logger.warning(f"Failed to initialize local knowledge base during startup: {e}")
 
 if __name__ == "__main__":
     import uvicorn
