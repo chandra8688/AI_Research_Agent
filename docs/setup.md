@@ -84,3 +84,52 @@ The FastAPI application natively serves the static web UI. Navigate to:
 [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
 
 You can now chat directly with the AI Research Agent.
+
+---
+
+## Docker Setup
+
+You can run the entire agent seamlessly in a Docker container using Docker Compose.
+
+### 1. Prerequisites
+Ensure you have **Docker** and **Docker Compose** installed on your system.
+
+### 2. Environment Variables
+Create your `.env` file as shown in step 5 above. Docker Compose will automatically read these variables and pass them securely into the container.
+
+### 3. Build Command
+Build the Docker image. This installs all dependencies and prepares the container:
+```bash
+docker compose build
+```
+
+### 4. Start Command
+Start the container in detached mode:
+```bash
+docker compose up -d
+```
+
+### 5. Accessing the Application
+Once running, access the web UI at:
+[http://localhost:8000/](http://localhost:8000/)
+
+### 6. Health Check
+The container is configured with a native health check. You can monitor its status via:
+```bash
+docker compose ps
+```
+
+### 7. Chroma Persistence
+The local Chroma database is configured to persist across container restarts using a Docker volume mapped to `/app/.chroma_db`. You will not lose your vectorized local knowledge when the container stops.
+
+### 8. Stop Command
+To stop the agent:
+```bash
+docker compose down
+```
+
+### 9. Troubleshooting
+If the container fails to start or you want to view the agent logs:
+```bash
+docker compose logs -f
+```

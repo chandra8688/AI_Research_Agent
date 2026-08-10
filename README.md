@@ -133,3 +133,16 @@ project/
 - Established strict **citation validation and claim grounding**, actively verifying agent outputs against retrieved source evidence.
 - Fully stabilized the application with an extensive offline suite boasting **88/88 passing regression tests**.
 - Exposed the agentic research engine through a modern **FastAPI layer and web UI**.
+
+## Docker Quick-Start
+
+To run the AI Research Agent seamlessly without configuring local Python environments:
+
+1. Create your `.env` file (see [docs/setup.md](docs/setup.md) for required keys).
+2. Build and start the container:
+   ```bash
+   docker compose up -d --build
+   ```
+3. Access the web interface at [http://localhost:8000](http://localhost:8000).
+
+Chroma database persistence is automatically handled via Docker volumes.
