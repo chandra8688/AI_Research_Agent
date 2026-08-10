@@ -1,1 +1,3 @@
 # Project dependencies
+google-genai
+python-dotenv
