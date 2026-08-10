@@ -6,23 +6,10 @@ from pydantic import BaseModel
 import tools
 
 def call_llm(prompt: str) -> str:
-    """Calls the Gemini API with the given prompt and returns the text response."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY environment variable is missing or empty.")
-    
-    try:
-        client = genai.Client(api_key=api_key)
-        # Using gemini-3.5-flash as the default development model (2.5 is deprecated)
-        response = client.models.generate_content(
-            model='gemini-3.5-flash',
-            contents=prompt,
-        )
-        return response.text
-    except errors.APIError as e:
-        raise RuntimeError(f"Gemini API Error: {str(e)}")
-    except Exception as e:
-        raise RuntimeError(f"Unexpected error during LLM call: {str(e)}")
+    """Calls the configured LLM API (Gemini or OpenRouter) with the given prompt and returns the text response."""
+    from providers import get_provider
+    provider = get_provider()
+    return provider.generate(prompt)
 
 def call_llm_structured(prompt: str, schema: type[BaseModel]) -> BaseModel:
     """Calls the Gemini API and returns a structured response parsed into the given Pydantic schema."""
