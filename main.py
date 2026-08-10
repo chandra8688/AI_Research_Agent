@@ -1,93 +1,81 @@
-import warnings
+import numpy as np
 from rag.loader import Document, load_documents
-from rag.chunker import chunk_document, chunk_documents
+from rag.chunker import chunk_documents
+from rag.embedder import embed_chunks, EMBEDDING_DIM
+
+
+def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Computes cosine similarity between two vectors."""
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
 
 def main():
     print("=" * 60)
-    print("AI-061: Document Chunking Tests (Offline)")
+    print("AI-062: Embeddings Tests (Offline, CPU)")
     print("=" * 60)
+    print("Note: First run will download all-MiniLM-L6-v2 (~80MB).\n")
 
     # ------------------------------------------------------------------
-    # Test 1: Happy path — chunk the real sample docs
+    # Setup: load and chunk the real sample documents
     # ------------------------------------------------------------------
-    print("\n--- Test 1: Chunk real sample documents ---")
     docs = load_documents("docs")
     chunks = chunk_documents(docs, chunk_size=500, overlap=100)
-
-    for chunk in chunks:
-        src   = chunk.metadata["source"]
-        idx   = chunk.metadata["chunk_index"]
-        total = chunk.metadata["chunk_count"]
-        chars = len(chunk.content)
-        print(f"  [{src}] chunk {idx+1}/{total}  |  {chars} chars")
-
-    print(f"\n  Total chunks produced: {len(chunks)}")
+    print(f"Documents loaded : {len(docs)}")
+    print(f"Chunks produced  : {len(chunks)}\n")
 
     # ------------------------------------------------------------------
-    # Test 2: Metadata verification
+    # Test 1: Generate embeddings
     # ------------------------------------------------------------------
-    print("\n--- Test 2: Metadata verification ---")
-    for chunk in chunks:
-        assert "source" in chunk.metadata,      "Missing 'source' key"
-        assert "chunk_index" in chunk.metadata,  "Missing 'chunk_index' key"
-        assert "chunk_count" in chunk.metadata,  "Missing 'chunk_count' key"
-        assert chunk.metadata["chunk_index"] >= 0
-        assert chunk.metadata["chunk_count"] >= 1
-    print("  PASS — all chunks have correct metadata keys and values.")
+    print("--- Test 1: Generate embeddings ---")
+    embeddings = embed_chunks(chunks)
+    print(f"  Embeddings generated: {len(embeddings)}")
+    for i, emb in enumerate(embeddings):
+        src = chunks[i].metadata["source"]
+        idx = chunks[i].metadata["chunk_index"]
+        print(f"  [{src}] chunk {idx}  shape={emb.shape}  dtype={emb.dtype}")
 
     # ------------------------------------------------------------------
-    # Test 3: Overlap verification between adjacent chunks
+    # Test 2: Count matches chunk count
     # ------------------------------------------------------------------
-    print("\n--- Test 3: Overlap between adjacent chunks ---")
-    # Grab the chunks for the first document only
-    first_source = docs[0].metadata["source"]
-    first_doc_chunks = [c for c in chunks if c.metadata["source"] == first_source]
-
-    if len(first_doc_chunks) >= 2:
-        tail = first_doc_chunks[0].content[-100:]
-        head = first_doc_chunks[1].content[:100]
-        overlap_found = any(word in head for word in tail.split() if len(word) > 4)
-        print(f"  Tail of chunk 0 (last 100 chars): {tail!r}")
-        print(f"  Head of chunk 1 (first 100 chars): {head!r}")
-        print(f"  Overlap detected: {overlap_found}")
-        assert overlap_found, "Expected word overlap between adjacent chunks"
-        print("  PASS — adjacent chunks share overlapping content.")
-    else:
-        print(f"  SKIP — '{first_source}' produced only 1 chunk (document shorter than chunk_size).")
+    print("\n--- Test 2: Count == chunk count ---")
+    assert len(embeddings) == len(chunks), (
+        f"Expected {len(chunks)} embeddings, got {len(embeddings)}"
+    )
+    print(f"  PASS -- {len(embeddings)} embeddings == {len(chunks)} chunks.")
 
     # ------------------------------------------------------------------
-    # Test 4: Short document produces exactly one chunk
+    # Test 3: Dimensionality is (384,) for all embeddings
     # ------------------------------------------------------------------
-    print("\n--- Test 4: Short document -> exactly one chunk ---")
-    short_doc = Document(content="Short text.", metadata={"source": "test_short.txt"})
-    short_chunks = chunk_document(short_doc, chunk_size=500, overlap=100)
-    print(f"  Chunks produced: {len(short_chunks)}")
-    assert len(short_chunks) == 1, f"Expected 1 chunk, got {len(short_chunks)}"
-    assert short_chunks[0].metadata["chunk_count"] == 1
-    assert short_chunks[0].metadata["chunk_index"] == 0
-    print("  PASS — short document produces exactly one chunk with correct metadata.")
+    print("\n--- Test 3: Dimensionality == (384,) ---")
+    for i, emb in enumerate(embeddings):
+        assert emb.shape == (EMBEDDING_DIM,), (
+            f"Chunk {i}: expected shape ({EMBEDDING_DIM},), got {emb.shape}"
+        )
+    print(f"  PASS -- all {len(embeddings)} embeddings have shape ({EMBEDDING_DIM},).")
 
     # ------------------------------------------------------------------
-    # Test 5: Invalid argument handling
+    # Test 4: Identical text produces near-identical embedding
     # ------------------------------------------------------------------
-    print("\n--- Test 5: Invalid argument handling ---")
-    dummy = Document(content="Some content.", metadata={"source": "dummy.txt"})
+    print("\n--- Test 4: Identical text -> cosine similarity >= 0.9999 ---")
+    same_text = "Retrieval-Augmented Generation is a technique for grounding LLMs."
+    doc_a = Document(content=same_text, metadata={"source": "test_a.txt"})
+    doc_b = Document(content=same_text, metadata={"source": "test_b.txt"})
+    emb_a, emb_b = embed_chunks([doc_a, doc_b])
+    sim = cosine_similarity(emb_a, emb_b)
+    print(f"  Cosine similarity of identical text: {sim:.6f}")
+    assert sim >= 0.9999, f"Expected >= 0.9999, got {sim:.6f}"
+    print("  PASS -- identical text produces near-identical embeddings.")
 
-    try:
-        chunk_document(dummy, chunk_size=0, overlap=0)
-        print("  FAIL — should have raised ValueError for chunk_size=0")
-    except ValueError as e:
-        print(f"  PASS — chunk_size=0: {e}")
-
-    try:
-        chunk_document(dummy, chunk_size=100, overlap=100)
-        print("  FAIL — should have raised ValueError for overlap >= chunk_size")
-    except ValueError as e:
-        print(f"  PASS — overlap >= chunk_size: {e}")
+    # ------------------------------------------------------------------
+    # Test 5: Empty input returns []
+    # ------------------------------------------------------------------
+    print("\n--- Test 5: Empty input returns [] ---")
+    result = embed_chunks([])
+    assert result == [], f"Expected [], got {result}"
+    print("  PASS -- empty input returns empty list.")
 
     print("\n" + "=" * 60)
-    print("AI-061 tests complete. No API calls were made.")
+    print("AI-062 tests complete. No API calls were made.")
     print("=" * 60)
 
 
