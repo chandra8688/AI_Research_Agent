@@ -69,6 +69,8 @@ MODEL = "gemini-3.5-flash"
 MAX_ITERATIONS = 5
 
 
+from state import AgentState
+
 def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
     """
     Runs a ReAct-style agent loop.
@@ -94,14 +96,18 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
     contents = [
         types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
     ]
+    
+    # Initialize explicit agent state
+    state = AgentState(query=prompt, contents=contents)
 
     for iteration in range(1, max_iterations + 1):
         print(f"\n[AGENT ITERATION {iteration}]")
+        state.iteration = iteration
 
         try:
             response = client.models.generate_content(
                 model=MODEL,
-                contents=contents,
+                contents=state.contents,
                 config=config,
             )
         except errors.APIError as e:
@@ -114,7 +120,7 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
             fc = response.function_calls[0]
 
             # Append the model's function-call turn to history
-            contents.append(response.candidates[0].content)
+            state.contents.append(response.candidates[0].content)
 
             # Route to registered tool
             tool_fn = TOOL_REGISTRY.get(fc.name)
@@ -128,6 +134,9 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
             kwargs = dict(fc.args)
             args_display = ", ".join(f"{k}={v!r}" for k, v in kwargs.items())
             print(f"[TOOL CALL] {fc.name}({args_display})")
+            
+            # Record tool call in state
+            state.tool_calls.append({"name": fc.name, "args": kwargs})
 
             # Dispatch: cast args to the right types per tool
             if fc.name == "calculate_product":
@@ -142,13 +151,18 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
 
             result = tool_fn(**typed_kwargs)
             print(f"[TOOL RESULT] {str(result)[:300]}{'...' if len(str(result)) > 300 else ''}")
+            
+            # Record tool result in state
+            state.tool_results.append({"name": fc.name, "result": result})
+            if fc.name == "search_local_knowledge":
+                state.retrieved_evidence.append(result)
 
             # Build and append the function response turn
             func_response_part = types.Part.from_function_response(
                 name=fc.name,
                 response={"result": result},
             )
-            contents.append(
+            state.contents.append(
                 types.Content(role="user", parts=[func_response_part])
             )
             # Continue to next iteration
@@ -158,6 +172,7 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
         # -------------------------------------------------------------------
         else:
             print("[FINAL ANSWER]")
+            state.final_answer = response.text
             return response.text
 
     # If we exit the loop without a final answer, guard kicked in
