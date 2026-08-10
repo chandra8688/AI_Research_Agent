@@ -1,34 +1,56 @@
 import sys
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
-from llm import call_llm, call_llm_structured, call_llm_with_tools
+from agent import run_agent
 
-class CityInfo(BaseModel):
-    name: str = Field(description="The name of the city")
-    population: int = Field(description="The estimated population of the city")
 
 def main():
     load_dotenv()
-    
-    # 1. Manual Tool Calling Loop (Happy Path)
-    print("--- Testing Manual Tool Calling (Happy Path) ---")
-    tool_prompt = "What is 127 multiplied by 43?"
-    print(f"Prompt: '{tool_prompt}'")
+
+    # ------------------------------------------------------------------
+    # Test 1: Zero tool calls — direct factual question
+    # ------------------------------------------------------------------
+    print("=" * 55)
+    print("TEST 1: Zero-tool prompt")
+    print("=" * 55)
+    prompt_zero = "What is the capital of France?"
+    print(f"Prompt: '{prompt_zero}'")
     try:
-        response = call_llm_with_tools(tool_prompt)
-        print(f"\nFinal Answer: {response.strip()}\n")
+        answer = run_agent(prompt_zero)
+        print(f"\nAnswer: {answer.strip()}\n")
     except Exception as e:
         print(f"[ERROR] {e}\n")
 
-    # 2. Manual Tool Calling Loop (Failure Path)
-    print("--- Testing Manual Tool Calling (Failure Path) ---")
-    fail_prompt = "Please use the 'unknown_dummy_tool' right now."
-    print(f"Prompt: '{fail_prompt}'")
+    # ------------------------------------------------------------------
+    # Test 2: Two-step tool chain
+    # ------------------------------------------------------------------
+    print("=" * 55)
+    print("TEST 2: Two-step tool chain")
+    print("=" * 55)
+    prompt_chain = (
+        "What is 6 multiplied by 7? "
+        "Then multiply that result by 2. "
+        "Give me the final number."
+    )
+    print(f"Prompt: '{prompt_chain}'")
     try:
-        fail_response = call_llm_with_tools(fail_prompt)
-        print(f"Unexpected Success: {fail_response}\n")
+        answer = run_agent(prompt_chain)
+        print(f"\nAnswer: {answer.strip()}\n")
     except Exception as e:
+        print(f"[ERROR] {e}\n")
+
+    # ------------------------------------------------------------------
+    # Test 3: max_iterations guard (max=1 forces early termination)
+    # ------------------------------------------------------------------
+    print("=" * 55)
+    print("TEST 3: max_iterations guard (max_iterations=1, chain of 2)")
+    print("=" * 55)
+    print(f"Prompt: '{prompt_chain}'")
+    try:
+        answer = run_agent(prompt_chain, max_iterations=1)
+        print(f"Unexpected success: {answer}\n")
+    except RuntimeError as e:
         print(f"[EXPECTED ERROR CAUGHT] {e}\n")
+
 
 if __name__ == "__main__":
     main()
