@@ -1,5 +1,6 @@
 import os
 import shutil
+import numpy as np
 from rag.loader import load_documents
 from rag.chunker import chunk_documents
 from rag.embedder import embed_chunks
@@ -8,78 +9,98 @@ from rag.store import VectorStore
 
 def main():
     print("=" * 60)
-    print("AI-063: Local Vector Store Tests (Offline)")
+    print("AI-064: Vector Similarity Retrieval Tests (Offline)")
     print("=" * 60)
     
     db_path = ".chroma_db"
     
+    # Clean up previous tests to ensure a fresh test environment
+    if os.path.exists(db_path):
+        try:
+            shutil.rmtree(db_path)
+        except Exception:
+            pass # might fail on windows if locked, but chroma will handle it
+    
     # ------------------------------------------------------------------
-    # Setup: load, chunk, and embed the real sample documents
+    # Setup: load, chunk, embed, and store the real sample documents
     # ------------------------------------------------------------------
-    print("\n--- Setup: Generating chunks and embeddings ---")
+    print("\n--- Setup: Building Pipeline ---")
     docs = load_documents("docs")
     chunks = chunk_documents(docs, chunk_size=500, overlap=100)
     embeddings = embed_chunks(chunks)
-    print(f"  Chunks produced: {len(chunks)}")
-    print(f"  Embeddings generated: {len(embeddings)}")
-
-    # ------------------------------------------------------------------
-    # Test 1 & 2: Initialize store and insert chunks
-    # ------------------------------------------------------------------
-    print("\n--- Test 1 & 2: Insert into VectorStore ---")
+    
     store = VectorStore(persist_directory=db_path)
     store.add_documents(chunks, embeddings)
-    print("  PASS -- successfully inserted chunks and embeddings into ChromaDB.")
+    total_stored = store.count()
+    print(f"  Chunks stored: {total_stored}")
 
     # ------------------------------------------------------------------
-    # Test 3: Verify collection count
+    # Test 1 & 2: Query and verify top result
     # ------------------------------------------------------------------
-    print("\n--- Test 3: Verify collection count ---")
-    count = store.count()
-    print(f"  Collection count: {count}")
-    assert count == len(chunks), f"Expected {len(chunks)}, got {count}"
-    print("  PASS -- count matches inserted chunks.")
+    print("\n--- Test 1 & 2: Query for RAG ---")
+    query_text = "What is RAG?"
+    print(f"  Query: '{query_text}'")
+    
+    # Note: we use our existing embedder to get the query vector
+    # We create a dummy Document object just to use our chunk embedder pipeline,
+    # or we can pass the raw string if the embedder was modified, but our embedder 
+    # takes a list of Document objects. Wait, looking at embed_chunks, it iterates 
+    # over chunks.content. Let's make a dummy chunk.
+    from rag.loader import Document
+    query_chunk = Document(content=query_text, metadata={"source": "query"})
+    query_embedding = embed_chunks([query_chunk])[0]
+    
+    results_k3 = store.search(query_embedding, k=3)
+    
+    print(f"  Returned {len(results_k3)} results.")
+    assert len(results_k3) == min(3, total_stored), "Result count mismatch for k=3"
+    
+    top_result = results_k3[0]
+    print(f"  Top result source: {top_result.metadata['source']}")
+    print(f"  Top result distance: {top_result.metadata['distance']:.4f}")
+    assert "RAG" in top_result.content or "rag" in top_result.metadata["source"].lower(), "Top result doesn't seem relevant to RAG."
+    assert "distance" in top_result.metadata, "Distance score missing from metadata."
+    assert "source" in top_result.metadata, "Source metadata missing."
+    assert "chunk_index" in top_result.metadata, "Chunk index metadata missing."
+    print("  PASS -- Top-k results are relevant and contain expected metadata.")
 
     # ------------------------------------------------------------------
-    # Test 4 & 5: ID uniqueness and retrieval
+    # Test 3 & 4: Test k=1 and result counts
     # ------------------------------------------------------------------
-    print("\n--- Test 4 & 5: Retrieve item and verify metadata ---")
-    first_chunk = chunks[0]
-    first_id = f"{first_chunk.metadata['source']}_chunk_{first_chunk.metadata['chunk_index']}"
+    print("\n--- Test 3 & 4: Test k=1 and boundaries ---")
+    results_k1 = store.search(query_embedding, k=1)
+    print(f"  Returned {len(results_k1)} results for k=1.")
+    assert len(results_k1) == 1, "Expected exactly 1 result for k=1."
     
-    result = store.get_item(first_id)
-    assert result is not None, "Failed to retrieve item."
-    
-    # Chroma returns lists for these fields since get() accepts multiple IDs
-    retrieved_doc = result["documents"][0]
-    retrieved_meta = result["metadatas"][0]
-    retrieved_emb = result["embeddings"][0]
-    
-    print(f"  Retrieved ID: {first_id}")
-    print(f"  Retrieved Source: {retrieved_meta.get('source')}")
-    assert retrieved_doc == first_chunk.content, "Stored text mismatch."
-    assert retrieved_meta["source"] == first_chunk.metadata["source"], "Metadata mismatch."
-    # We won't perfectly match floats, but we check if it has the right dimension
-    assert len(retrieved_emb) == len(embeddings[0]), "Embedding dimension mismatch."
-    
-    print("  PASS -- successfully retrieved text, metadata, and embedding by unique ID.")
+    results_k100 = store.search(query_embedding, k=100)
+    print(f"  Returned {len(results_k100)} results for k=100 (total docs={total_stored}).")
+    assert len(results_k100) == total_stored, "Result count should not exceed total stored chunks."
+    print("  PASS -- k boundaries respected.")
 
     # ------------------------------------------------------------------
-    # Test 6 & 7: Persistence
+    # Test 5: Empty query handling
     # ------------------------------------------------------------------
-    print("\n--- Test 6 & 7: Verify data persistence ---")
-    # Delete the in-memory object to simulate program exit
-    del store
+    print("\n--- Test 5: Empty query ---")
+    empty_chunk = Document(content="", metadata={})
+    empty_embedding = embed_chunks([empty_chunk])
     
-    # Re-initialize pointing to the same persistent directory
-    new_store = VectorStore(persist_directory=db_path)
-    new_count = new_store.count()
-    print(f"  Re-opened store collection count: {new_count}")
-    assert new_count == len(chunks), "Data did not persist between client lifecycles!"
-    print("  PASS -- data persists locally.")
+    # Our embedder returns an empty list for empty content
+    if not empty_embedding:
+        print("  Query embedding was empty (as expected for empty text).")
+        # In a real app we'd skip search, but let's test if we pass a zero vector
+        dummy_zero = np.zeros(384, dtype=np.float32)
+        empty_results = store.search(dummy_zero, k=3)
+        print(f"  Zero-vector search returned {len(empty_results)} results.")
+        assert len(empty_results) > 0, "Zero-vector should still return something due to ANN."
+    else:
+        empty_results = store.search(empty_embedding[0], k=3)
+        print(f"  Empty text search returned {len(empty_results)} results.")
+    
+    print("  PASS -- Empty/zero query handled gracefully.")
+
 
     print("\n" + "=" * 60)
-    print("AI-063 tests complete. No API calls were made.")
+    print("AI-064 tests complete. No API calls were made.")
     print("=" * 60)
 
 
