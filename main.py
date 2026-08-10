@@ -1,77 +1,85 @@
 import os
 import shutil
 from dotenv import load_dotenv
-from rag.loader import load_documents, Document
+
+from rag.loader import load_documents
 from rag.chunker import chunk_documents
 from rag.embedder import embed_chunks
 from rag.store import VectorStore
-from rag.generator import generate_rag_answer
-
+from tools import search_local_knowledge
+from agent import run_agent
 
 def main():
     load_dotenv()
     print("=" * 60)
-    print("AI-065: Basic RAG Answer Generation Tests")
+    print("AI-066: Agentic RAG Integration Tests")
     print("=" * 60)
-    
+
     db_path = ".chroma_db"
-    
-    # Clean up previous tests
+
+    # ------------------------------------------------------------------
+    # Setup: Ensure VectorStore is populated
+    # ------------------------------------------------------------------
+    print("\n--- Setup: Building Pipeline ---")
     if os.path.exists(db_path):
         try:
             shutil.rmtree(db_path)
         except Exception:
             pass
-            
-    # ------------------------------------------------------------------
-    # Setup: Local pipeline (load -> chunk -> embed -> store)
-    # ------------------------------------------------------------------
-    print("\n--- Setup: Building Pipeline ---")
+
     docs = load_documents("docs")
     chunks = chunk_documents(docs, chunk_size=500, overlap=100)
     embeddings = embed_chunks(chunks)
-    
+
     store = VectorStore(persist_directory=db_path)
     store.add_documents(chunks, embeddings)
     print(f"  Stored {store.count()} chunks in ChromaDB.")
 
-    # Helper for searching and generating
-    def test_rag(query_text: str):
-        print(f"\nQUERY: '{query_text}'")
-        
-        # 1. Embed query
-        query_chunk = Document(content=query_text, metadata={"source": "query"})
-        query_embedding = embed_chunks([query_chunk])[0]
-        
-        # 2. Retrieve chunks
-        retrieved_chunks = store.search(query_embedding, k=3)
-        print(f"  [Retrieved {len(retrieved_chunks)} chunks]")
-        for i, chunk in enumerate(retrieved_chunks):
-            print(f"    - Chunk {i}: {chunk.metadata.get('source')} (dist: {chunk.metadata.get('distance', 0.0):.4f})")
-            
-        # 3. Generate answer
-        print("\n  [Generating Answer...]")
-        answer = generate_rag_answer(query_text, retrieved_chunks)
-        print("-" * 40)
-        print(answer)
-        print("-" * 40)
-        return answer
 
     # ------------------------------------------------------------------
-    # Test 1: Grounded query
+    # Test 1: Direct tool test (OFFLINE)
     # ------------------------------------------------------------------
-    print("\n--- Test 1: Explain RAG ---")
-    # test_rag("Explain RAG.") # Skipped to save quota
+    print("\n--- Test 1: Direct offline tool test ---")
+    offline_res = search_local_knowledge("What is RAG?")
+    print("-" * 40)
+    print(offline_res)
+    print("-" * 40)
+    assert "Error:" not in offline_res, "Local tool failed unexpectedly."
+    assert "[Evidence" in offline_res, "Formatted evidence missing."
 
-    
     # ------------------------------------------------------------------
-    # Test 2: Unrelated query (should fail gracefully)
+    # Test 4: Empty query handling (OFFLINE)
     # ------------------------------------------------------------------
-    print("\n--- Test 2: Unrelated query (Out of Context) ---")
-    test_rag("What is the capital of France?")
+    print("\n--- Test 4: Direct offline empty query test ---")
+    empty_res = search_local_knowledge("")
+    print(f"  Result: {empty_res}")
+    assert "Error" in empty_res, "Empty query did not return an error string."
+
+    # ------------------------------------------------------------------
+    # Test 3: Calculator regression (AGENT)
+    # ------------------------------------------------------------------
+    print("\n--- Test 3: Agent calculator regression ---")
+    print("  Prompt: 'What is 42 multiplied by 7?'")
+    try:
+        # Note: using a small max_iterations to protect quota if it gets confused
+        calc_answer = run_agent("What is 42 multiplied by 7?", max_iterations=3)
+        print("\n  Final Answer:", calc_answer)
+    except Exception as e:
+        print(f"\n  Agent failed: {e}")
+
+    # ------------------------------------------------------------------
+    # Test 2: Local knowledge RAG query (AGENT)
+    # ------------------------------------------------------------------
+    print("\n--- Test 2: Agent local-knowledge RAG test ---")
+    print("  Prompt: 'What does our local documentation say about RAG versus fine-tuning?'")
+    try:
+        rag_answer = run_agent("What does our local documentation say about RAG versus fine-tuning?", max_iterations=3)
+        print("\n  Final Answer:", rag_answer)
+    except Exception as e:
+        print(f"\n  Agent failed: {e}")
 
     print("\n" + "=" * 60)
-    print("AI-065 tests complete. (2 Gemini API calls made)")
+    print("AI-066 tests complete.")
     print("=" * 60)
 
 

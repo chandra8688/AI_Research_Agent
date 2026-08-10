@@ -2,7 +2,7 @@ import os
 from google import genai
 from google.genai import errors
 from google.genai import types
-from tools import calculate_product, search_web
+from tools import calculate_product, search_web, search_local_knowledge
 
 # ---------------------------------------------------------------------------
 # Tool Registry: maps function name → local Python callable
@@ -10,6 +10,7 @@ from tools import calculate_product, search_web
 TOOL_REGISTRY = {
     "calculate_product": calculate_product,
     "search_web": search_web,
+    "search_local_knowledge": search_local_knowledge,
 }
 
 # ---------------------------------------------------------------------------
@@ -43,6 +44,21 @@ FUNCTION_DECLARATIONS = [
                     "type": "INTEGER",
                     "description": "Maximum number of results to return (1-10, default 3)",
                 },
+            },
+            "required": ["query"],
+        },
+    ),
+    types.FunctionDeclaration(
+        name="search_local_knowledge",
+        description=(
+            "Searches the local document knowledge base for internal information on a given query. "
+            "Use this ONLY when the user asks about local, internal, or provided documents, or topics "
+            "where you need context from the internal knowledge base to answer properly."
+        ),
+        parameters={
+            "type": "OBJECT",
+            "properties": {
+                "query": {"type": "STRING", "description": "The search query string"},
             },
             "required": ["query"],
         },

@@ -40,3 +40,50 @@ def search_web(query: str, max_results: int = 3) -> str:
         formatted.append(f"[Result {i}]\nTitle: {title}\nURL: {url}\nSnippet: {snippet}")
 
     return "\n\n".join(formatted)
+
+
+def search_local_knowledge(query: str) -> str:
+    """
+    Searches the local knowledge base (VectorStore) for relevant chunks based on the query.
+    Returns formatted evidence including source metadata.
+    """
+    if not query or not query.strip():
+        return "Error: search query cannot be empty."
+
+    try:
+        from rag.loader import Document
+        from rag.embedder import embed_chunks
+        from rag.store import VectorStore
+        
+        # We need a quick dummy chunk to embed the query since embed_chunks expects a list of Documents
+        query_chunk = Document(content=query.strip(), metadata={})
+        query_embedding = embed_chunks([query_chunk])
+        
+        if not query_embedding:
+            return "Error: could not generate embedding for query."
+            
+        store = VectorStore(persist_directory=".chroma_db")
+        if store.count() == 0:
+            return "Error: local vector database is empty. No documents available to search."
+            
+        results = store.search(query_embedding[0], k=3)
+        if not results:
+            return "No relevant local documents found for the given query."
+            
+        formatted = []
+        for i, chunk in enumerate(results, start=1):
+            source = chunk.metadata.get("source", "unknown")
+            chunk_idx = chunk.metadata.get("chunk_index", "unknown")
+            dist = chunk.metadata.get("distance", "unknown")
+            
+            # Optionally format distance to a neat float if it is one
+            dist_str = f"{dist:.4f}" if isinstance(dist, float) else str(dist)
+            
+            formatted.append(
+                f"[Evidence {i}]\nSource: {source} (Chunk {chunk_idx})\nDistance: {dist_str}\nText: {chunk.content}"
+            )
+            
+        return "\n\n".join(formatted)
+
+    except Exception as e:
+        return f"Error: local knowledge search failed — {str(e)}"
