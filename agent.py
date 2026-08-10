@@ -71,16 +71,9 @@ MAX_ITERATIONS = 5
 
 from state import AgentState
 
-def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
+def execute_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> tuple[str, AgentState]:
     """
-    Runs a ReAct-style agent loop.
-
-    Each iteration:
-      1. Sends current conversation history to Gemini.
-      2. If Gemini requests a tool → execute it locally, append the result, continue.
-      3. If Gemini returns text → stop and return the final answer.
-
-    Raises RuntimeError if max_iterations is reached without a final answer.
+    Runs a ReAct-style agent loop and returns both the final answer and the execution state.
     """
     # 1. INPUT VALIDATION
     if not isinstance(prompt, str) or not prompt.strip():
@@ -214,9 +207,18 @@ def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
                 raise RuntimeError("Agent produced an empty final answer.")
                 
             state.final_answer = final_text
-            return final_text
+            return final_text, state
 
     # 5. ITERATION GUARD (limit reached)
     raise RuntimeError(
         f"Agent did not produce a final answer within {max_iterations} iterations."
     )
+
+
+def run_agent(prompt: str, max_iterations: int = MAX_ITERATIONS) -> str:
+    """
+    Runs a ReAct-style agent loop.
+    Returns only the final string answer to preserve existing behavior.
+    """
+    answer, _ = execute_agent(prompt, max_iterations)
+    return answer
