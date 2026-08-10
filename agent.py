@@ -188,6 +188,9 @@ def execute_agent(prompt: str, max_iterations: int | None = None, session: Agent
             state.tool_calls.append({"name": fc.name, "args": kwargs})
             state.add_trace("tool_call", {"tool_name": fc.name, "arguments": kwargs})
 
+            if fc.name in ["search_local_knowledge", "search_web"]:
+                state.add_trace("research_source_selected", {"source": fc.name})
+
             # 3 & 4. TOOL ARGUMENT VALIDATION & EXECUTION ERROR HANDLING
             try:
                 # Dispatch: cast args to the right types per tool
@@ -214,27 +217,68 @@ def execute_agent(prompt: str, max_iterations: int | None = None, session: Agent
             result_str = str(result)
             state.add_trace("tool_result", {"result_preview": result_str[:300] + ('...' if len(result_str) > 300 else '')})
             
-            # Reflection processing
+            # Evidence collection for multi-source
+            from research import parse_local_evidence, parse_web_evidence, format_combined_evidence
+            needs_reflection = False
+            
             if fc.name == "search_local_knowledge" and not str(result).startswith("Error:"):
-                state.retrieved_evidence.append(result)
-                state.reflection_attempts += 1
+                items = parse_local_evidence(str(result))
+                state.multi_source_evidence.extend(items)
+                state.retrieved_evidence.append(result) # Preserve old behavior
+                needs_reflection = True
                 
-                # Evaluate evidence
+            elif fc.name == "search_web" and not str(result).startswith("Error:"):
+                items = parse_web_evidence(str(result))
+                state.multi_source_evidence.extend(items)
+                needs_reflection = True
+                
+            if needs_reflection:
+                state.add_trace("evidence_collected", {"count": len(state.multi_source_evidence)})
+                
+                # If plan requires multi-source, ensure both are collected
+                if plan.requires_multi_source_research:
+                    has_local = any(e.source_type == "local" for e in state.multi_source_evidence)
+                    has_web = any(e.source_type == "web" for e in state.multi_source_evidence)
+                    if not (has_local and has_web):
+                        # Still missing one source
+                        result = (f"{result}\n\n[SYSTEM GUIDANCE]: You have collected partial evidence. "
+                                  f"Your research plan requires BOTH local and web sources. "
+                                  f"Please call the other required search tool.")
+                        func_response_part = types.Part.from_function_response(name=fc.name, response={"result": result})
+                        state.contents.append(types.Content(role="user", parts=[func_response_part]))
+                        continue
+
+                # We have all required evidence (or it's a single source plan). Synthesize and reflect.
+                combined_text = format_combined_evidence(state.multi_source_evidence)
+                state.add_trace("evidence_synthesis", {"sources": [e.source for e in state.multi_source_evidence]})
+                
+                state.reflection_attempts += 1
                 from reflection import evaluate_evidence
-                reflection = evaluate_evidence(prompt, state.retrieved_evidence)
+                # Reflect on the combined evidence text
+                reflection = evaluate_evidence(prompt, [combined_text])
                 state.reflection_result = reflection
                 print(f"[REFLECTION] sufficient={reflection.sufficient}, reason={reflection.reason}")
                 state.add_trace("reflection", {"status": "sufficient" if reflection.sufficient else "insufficient", "feedback": reflection.reason})
                 
-                # 6. REFLECTION GUARD
                 if not reflection.sufficient:
                     if state.reflection_attempts < settings.max_reflection_attempts:
-                        result = (f"{result}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
-                                  f"because: {reflection.reason}. Please refine your search query and call search_local_knowledge again.")
+                        result = (f"{combined_text}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
+                                  f"because: {reflection.reason}. Please refine your search query.")
                     else:
-                        result = (f"{result}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
+                        result = (f"{combined_text}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
                                   f"because: {reflection.reason}. MAX RETRIEVAL ATTEMPTS REACHED. "
                                   f"Please provide your final answer based only on what you have, or admit you do not know.")
+                else:
+                    # Inject synthesis instructions
+                    result = (f"{combined_text}\n\n[SYSTEM EVALUATION]: The retrieved evidence is SUFFICIENT. "
+                              f"Please generate the final answer. "
+                              f"\n\nSYNTHESIS INSTRUCTIONS:\n"
+                              f"- Distinguish between local evidence and web evidence in your answer.\n"
+                              f"- Do not invent unsupported claims.\n"
+                              f"- Distinguish conflicting evidence.\n"
+                              f"- Prefer explicit evidence over assumptions.\n"
+                              f"- Identify the source type supporting important claims.\n"
+                              f"- Add source attribution to the final answer context: [LOCAL: filename] or [WEB: URL/title].")
 
             # Build and append the function response turn
             func_response_part = types.Part.from_function_response(

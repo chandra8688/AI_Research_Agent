@@ -17,6 +17,7 @@ class AgentState:
     tool_calls: list = field(default_factory=list)
     tool_results: list = field(default_factory=list)
     retrieved_evidence: list = field(default_factory=list)
+    multi_source_evidence: list = field(default_factory=list)
     final_answer: str | None = None
     reflection_result: Any = None
     reflection_attempts: int = 0
@@ -64,6 +65,18 @@ def format_trace(state: AgentState) -> str:
                 lines.append(f"Result: {event.details['result_preview']}")
             if 'evidence_chunks' in event.details:
                 lines.append(f"Evidence chunks: {event.details['evidence_chunks']}")
+
+        elif event.event_type == "research_source_selected":
+            lines.append(f"[{idx}] SOURCE SELECTED")
+            lines.append(f"Source: {event.details.get('source', '')}")
+
+        elif event.event_type == "evidence_collected":
+            lines.append(f"[{idx}] EVIDENCE COLLECTED")
+            lines.append(f"Count: {event.details.get('count', 0)}")
+
+        elif event.event_type == "evidence_synthesis":
+            lines.append(f"[{idx}] EVIDENCE SYNTHESIS")
+            lines.append(f"Sources: {', '.join(event.details.get('sources', []))}")
                 
         elif event.event_type == "reflection":
             lines.append(f"[{idx}] REFLECTION")
