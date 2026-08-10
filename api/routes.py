@@ -70,11 +70,34 @@ def chat_endpoint(request: ChatRequest):
         # Note: execute_agent returns (final_answer, state)
         final_answer, state = execute_agent(message, session=session)
         
+        # Extract sources from retrieved evidence
+        import re
+        sources = []
+        seen = set()
+        for ev in state.retrieved_evidence:
+            matches = re.findall(r"Source:\s*(.*?)\s*\(Chunk\s*([^)]+)\)", ev)
+            for src, chunk in matches:
+                key = f"{src}_{chunk}"
+                if key not in seen:
+                    seen.add(key)
+                    sources.append({"source": src.strip(), "chunk_index": chunk.strip()})
+                    
+        # Extract trace
+        trace_list = []
+        for t in state.trace:
+            trace_list.append({
+                "event_type": t.event_type,
+                "iteration": t.iteration,
+                "details": t.details
+            })
+        
         return ChatResponse(
             session_id=session.session_id,
             answer=final_answer,
             iterations=state.iteration,
-            tool_calls=len(state.tool_calls)
+            tool_calls=len(state.tool_calls),
+            sources=sources if sources else None,
+            trace=trace_list
         )
     except ValueError as e:
         logger.warning(f"Validation error during agent execution: {e}")

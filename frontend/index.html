@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Research Agent</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-top">
+                <h1>AI RESEARCH AGENT</h1>
+                <div class="health-indicator" id="healthIndicator">
+                    <span class="status-dot unknown"></span>
+                    <span class="status-text">Checking status...</span>
+                </div>
+            </div>
+            <p class="subtitle">Research &bull; Retrieve &bull; Reason &bull; Answer</p>
+        </header>
+
+        <main class="main-content">
+            <div id="chatHistory" class="chat-history">
+                <!-- Messages will appear here -->
+            </div>
+
+            <div class="input-container">
+                <label for="messageInput" class="input-label">Ask your research question</label>
+                <div class="input-box">
+                    <textarea id="messageInput" placeholder="What does the documentation say about RAG?" rows="3"></textarea>
+                </div>
+                <div class="button-row">
+                    <div id="errorBanner" class="error-banner hidden"></div>
+                    <button id="askBtn" class="ask-btn">Ask Agent</button>
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>

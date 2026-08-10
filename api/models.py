@@ -11,6 +11,8 @@ class ChatResponse(BaseModel):
     answer: str
     iterations: int
     tool_calls: int
+    sources: list[dict] | None = None
+    trace: list[dict] | None = None
 
 class HealthResponse(BaseModel):
     status: str

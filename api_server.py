@@ -29,7 +29,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+import os
+
 app.include_router(router)
+
+# Serve frontend static files if directory exists
+frontend_dir = os.path.join(os.path.dirname(__file__), "frontend")
+if os.path.exists(frontend_dir):
+    app.mount("/static", StaticFiles(directory=frontend_dir), name="static")
+
+    @app.get("/")
+    def read_index():
+        return FileResponse(os.path.join(frontend_dir, "index.html"))
 
 @app.on_event("startup")
 def startup_event():
