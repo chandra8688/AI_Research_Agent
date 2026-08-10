@@ -1,0 +1,17 @@
+Fine-tuning is a process where a pre-trained large language model is further trained on a smaller, task-specific dataset to adapt its behavior for a particular use case.
+
+Unlike RAG, fine-tuning modifies the model's weights permanently, embedding the new knowledge directly into the model's parameters.
+
+Key characteristics of fine-tuning:
+- Best for teaching the model a specific style, tone, or domain-specific behavior.
+- Requires a curated, labeled dataset and significant compute (GPUs).
+- Once trained, the model cannot easily "forget" or update specific facts.
+- Does not provide source citations — the model answers from parametric memory.
+- Re-training is required every time the underlying knowledge needs to change.
+
+Fine-tuning is most appropriate when the task requires a specialized capability (e.g., code generation in a proprietary language, customer-service tone) rather than access to a specific knowledge base.
+
+When to choose fine-tuning over RAG:
+- The task is well-defined and unlikely to change frequently.
+- The dataset is static and curated.
+- Inference latency is critical and real-time retrieval is not acceptable.

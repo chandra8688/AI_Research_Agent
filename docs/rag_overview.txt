@@ -1,0 +1,12 @@
+Retrieval-Augmented Generation (RAG) is a technique that enhances large language models (LLMs) by retrieving relevant information from an external knowledge base before generating a response.
+
+Instead of relying solely on what the model learned during training, RAG dynamically pulls in up-to-date, domain-specific documents at query time and provides them as context to the LLM.
+
+Key advantages of RAG:
+- Keeps answers grounded in real, verifiable sources.
+- Allows the model to cite specific documents or URLs.
+- Reduces hallucination by constraining the answer to retrieved content.
+- Does not require expensive model retraining when knowledge changes.
+- Works well with private, internal enterprise data.
+
+RAG is commonly used in enterprise applications where accuracy, traceability, and up-to-date information are more important than raw model creativity.

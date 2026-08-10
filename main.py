@@ -1,51 +1,42 @@
-import sys
-from dotenv import load_dotenv
-from agent import run_agent
+import warnings
+from rag.loader import load_documents
 
 
 def main():
-    load_dotenv()
+    # ------------------------------------------------------------------
+    # AI-060: Document Loading (fully offline — no API calls)
+    # ------------------------------------------------------------------
+    print("=" * 55)
+    print("AI-060: Document Loading Tests (Offline)")
+    print("=" * 55)
 
-    # ------------------------------------------------------------------
-    # Test 1: Research prompt — triggers search_web
-    # ------------------------------------------------------------------
-    print("=" * 60)
-    print("TEST 1: Research prompt (search_web tool)")
-    print("=" * 60)
-    research_prompt = (
-        "What are the main advantages of RAG over fine-tuning for enterprise LLMs? "
-        "Search for information and summarise the key points."
-    )
-    print(f"Prompt: '{research_prompt}'\n")
-    try:
-        answer = run_agent(research_prompt)
-        print(f"\nAnswer:\n{answer.strip()}\n")
-    except Exception as e:
-        print(f"[ERROR] {e}\n")
+    # Test 1: Happy path — load from the docs/ directory
+    print("\n--- Test 1: Load from docs/ directory ---")
+    docs = load_documents("docs")
+    if docs:
+        for doc in docs:
+            print(f"  Source   : {doc.metadata['source']}")
+            print(f"  Chars    : {len(doc.content)}")
+            print(f"  Preview  : {doc.content[:80].strip()!r}...")
+            print()
+        print(f"  Total documents loaded: {len(docs)}")
+    else:
+        print("  [WARN] No documents loaded.")
 
-    # ------------------------------------------------------------------
-    # Test 2: Calculator regression — verify calculate_product still works
-    # ------------------------------------------------------------------
-    print("=" * 60)
-    print("TEST 2: Calculator regression (calculate_product tool)")
-    print("=" * 60)
-    calc_prompt = "What is 6 multiplied by 7?"
-    print(f"Prompt: '{calc_prompt}'\n")
-    try:
-        answer = run_agent(calc_prompt)
-        print(f"\nAnswer: {answer.strip()}\n")
-    except Exception as e:
-        print(f"[ERROR] {e}\n")
+    # Test 2: Failure path — nonexistent directory
+    print("\n--- Test 2: Nonexistent directory ---")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = load_documents("nonexistent_dir")
+    if caught:
+        print(f"  Warning caught: {caught[0].message}")
+    print(f"  Returned: {result}")
+    assert result == [], "Expected empty list for missing directory"
+    print("  PASS — returned empty list as expected.")
 
-    # ------------------------------------------------------------------
-    # Test 3: search_web failure handling — empty query
-    # ------------------------------------------------------------------
-    print("=" * 60)
-    print("TEST 3: search_web failure handling (direct call, empty query)")
-    print("=" * 60)
-    from tools import search_web
-    result = search_web(query="", max_results=3)
-    print(f"Result: {result}\n")
+    print("\n" + "=" * 55)
+    print("AI-060 tests complete. No API calls were made.")
+    print("=" * 55)
 
 
 if __name__ == "__main__":
