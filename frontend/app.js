@@ -181,13 +181,25 @@ document.addEventListener('DOMContentLoaded', () => {
                 errorBanner.textContent = errorData.detail || 'Invalid request.';
                 errorBanner.className = 'error-banner';
                 loadingBox.msgDiv.remove();
+            } else if (res.status === 429) {
+                errorBanner.textContent = 'The AI provider is temporarily rate-limited. Please try again later.';
+                errorBanner.className = 'error-banner';
+                loadingBox.msgDiv.remove();
+            } else if (res.status === 502) {
+                errorBanner.textContent = 'The AI provider returned an upstream error. Please try again later.';
+                errorBanner.className = 'error-banner';
+                loadingBox.msgDiv.remove();
+            } else if (res.status === 503) {
+                errorBanner.textContent = 'The research service is temporarily unavailable. Please try again later.';
+                errorBanner.className = 'error-banner';
+                loadingBox.msgDiv.remove();
             } else {
                 errorBanner.textContent = 'The agent encountered an error. Please try again.';
                 errorBanner.className = 'error-banner';
                 loadingBox.msgDiv.remove();
             }
         } catch (err) {
-            errorBanner.textContent = 'Unable to connect to the research agent.';
+            errorBanner.textContent = 'Unable to connect to the research server. Please make sure the backend is running.';
             errorBanner.className = 'error-banner';
             loadingBox.msgDiv.remove();
         } finally {
