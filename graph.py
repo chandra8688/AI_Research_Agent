@@ -391,6 +391,19 @@ def quality_check(state: GraphState):
         
         return {"agent_state": agent_state, "next_action": "agent_decide"}
         
+    if quality_report.overall_grounding_score < settings.grounding_threshold or quality_report.unsupported_claims or quality_report.conflicts_detected:
+        from quality import apply_grounding_gate
+        agent_state.add_trace("grounding_gate_triggered", {
+            "score": quality_report.overall_grounding_score,
+            "unsupported": len(quality_report.unsupported_claims)
+        })
+        with open("debug_answers.txt", "w", encoding="utf-8") as f:
+            f.write("=== PRE-GATE ANSWER ===\n" + final_text + "\n=====================\n")
+            
+        final_text = apply_grounding_gate(final_text, quality_report)
+        
+        with open("debug_answers.txt", "a", encoding="utf-8") as f:
+            f.write("=== POST-GATE ANSWER ===\n" + final_text + "\n=====================\n")
     agent_state.final_answer = final_text
     agent_state.add_trace("final_answer")
     agent_state.add_trace("graph_end")

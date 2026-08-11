@@ -11,3 +11,4 @@ uvicorn
 pydantic-settings
 langgraph
 langchain-core
+groq

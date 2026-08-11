@@ -183,5 +183,44 @@ class TestAgentProviders(unittest.TestCase):
             params = func.parameters
             self.assertTrue(hasattr(params, "type") or isinstance(params, dict))
 
+    @patch('providers.groq.groq.Groq')
+    @patch('config.settings')
+    def test_groq_tool_calling(self, mock_settings, mock_groq_class):
+        mock_settings.groq_api_key = "dummy_key"
+        mock_settings.groq_model = "test-groq-model"
+        
+        mock_client = MagicMock()
+        mock_groq_class.return_value = mock_client
+        
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_message = MagicMock()
+        mock_message.content = None
+        
+        tc = MagicMock()
+        tc.type = "function"
+        tc.function.name = "search_web"
+        tc.function.arguments = '{"query": "AI"}'
+        mock_message.tool_calls = [tc]
+        
+        mock_choice.message = mock_message
+        mock_response.choices = [mock_choice]
+        
+        mock_client.chat.completions.create.return_value = mock_response
+        
+        from providers.groq import GroqProvider
+        provider = GroqProvider()
+        result = provider.generate_agent_step([{"role": "user", "content": "Search AI"}], [])
+        
+        self.assertEqual(len(result.function_calls), 1)
+        self.assertEqual(result.function_calls[0].name, "search_web")
+        self.assertEqual(result.function_calls[0].args, {"query": "AI"})
+        self.assertIsNone(result.text)
+        
+        # Verify model was passed
+        mock_client.chat.completions.create.assert_called_once()
+        kwargs = mock_client.chat.completions.create.call_args[1]
+        self.assertEqual(kwargs["model"], "test-groq-model")
+
 if __name__ == '__main__':
     unittest.main()

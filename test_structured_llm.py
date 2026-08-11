@@ -188,5 +188,28 @@ class TestStructuredLLM(unittest.TestCase):
         self.assertIn('"name": <string value (required)>', prompt_sent)
         
 
+    @patch('providers.groq.groq.Groq')
+    @patch('config.settings')
+    def test_structured_groq_path(self, mock_settings, mock_groq_class):
+        mock_settings.groq_api_key = "dummy_key"
+        mock_settings.groq_model = "test-groq-model"
+        
+        mock_client = MagicMock()
+        mock_groq_class.return_value = mock_client
+        
+        mock_response = MagicMock()
+        mock_choice = MagicMock()
+        mock_choice.message.content = '{"name": "GroqTest", "age": 3}'
+        mock_response.choices = [mock_choice]
+        
+        mock_client.chat.completions.create.return_value = mock_response
+        
+        from providers.groq import GroqProvider
+        provider = GroqProvider()
+        result = provider.generate_structured("Prompt", DummySchema)
+        
+        self.assertEqual(result.name, "GroqTest")
+        self.assertEqual(result.age, 3)
+
 if __name__ == '__main__':
     unittest.main()

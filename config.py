@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     
     gemini_api_key: str | None = None
     openrouter_api_key: str | None = None
+    groq_api_key: str | None = None
+    groq_model: str = "openai/gpt-oss-120b"
     
     # Vector DB Configuration
     vector_db: str = "chroma"
@@ -31,6 +33,7 @@ class Settings(BaseSettings):
     max_message_length: int = 10000
     max_agent_iterations: int = 5
     max_reflection_attempts: int = 2
+    grounding_threshold: float = 0.70
     
     # CORS
     cors_origins: list[str] = [

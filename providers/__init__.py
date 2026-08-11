@@ -39,5 +39,8 @@ def get_provider(name: str | None = None) -> LLMProvider:
     elif provider_name == "openrouter":
         from .openrouter import OpenRouterProvider
         return OpenRouterProvider()
+    elif provider_name == "groq":
+        from .groq import GroqProvider
+        return GroqProvider()
     else:
         raise ValueError(f"Unsupported LLM_PROVIDER: '{provider_name}'")
