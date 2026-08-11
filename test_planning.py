@@ -47,19 +47,20 @@ class TestPlanning(unittest.TestCase):
         with self.assertRaises(ValueError):
             create_research_plan("   ")
 
-    @patch("agent.genai.Client")
-    def test_7_agent_regression(self, mock_client_class):
-        # Mock Gemini
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+
+    @patch("providers.get_provider")
+    def test_7_agent_regression(self, mock_get_provider):
+        from providers import AgentResponse
         
-        # Mock a direct text answer
-        mock_response = MagicMock()
-        mock_response.function_calls = None
-        mock_response.text = "RAG is..."
-        mock_models.generate_content.return_value = mock_response
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+        
+        mock_response = AgentResponse(
+            text="RAG is...",
+            function_calls=[],
+            model_message={"role": "model", "raw_message": "dummy"}
+        )
+        mock_provider.generate_agent_step.return_value = mock_response
 
         # Execute agent
         ans, state = execute_agent("According to my files what is RAG?")

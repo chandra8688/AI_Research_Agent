@@ -11,53 +11,52 @@ from config import settings
 settings.gemini_api_key = "test_key"
 os.environ["GEMINI_API_KEY"] = "test_key"
 
-@patch("graph.genai.Client")
+from providers import AgentResponse, ToolCall
+
+@patch("providers.get_provider")
 @patch("graph.extract_claims")
 @patch("graph.evaluate_evidence")
 class TestGraph(unittest.TestCase):
     
-    def test_1_graph_construction(self, mock_eval, mock_extract, mock_client_class):
+    def test_1_graph_construction(self, mock_eval, mock_extract, mock_get_provider):
         self.assertIsNotNone(execute_agent_graph)
         
-    def test_2_simple_query(self, mock_eval, mock_extract, mock_client_class):
+    def test_2_simple_query(self, mock_eval, mock_extract, mock_get_provider):
         mock_extract.return_value = []
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
-        mock_response = MagicMock()
-        mock_response.function_calls = None
-        mock_response.text = "This is a simple answer."
-        mock_response.candidates = [MagicMock()]
-        mock_models.generate_content.return_value = mock_response
+        mock_response = AgentResponse(
+            text="This is a simple answer.",
+            function_calls=[],
+            model_message={"role": "model", "raw_message": "dummy"}
+        )
+        mock_provider.generate_agent_step.return_value = mock_response
         
         ans, state = execute_agent_graph("What is 2+2?")
         self.assertEqual(ans, "This is a simple answer.")
         self.assertEqual(state.iteration, 1)
 
     @patch("graph.TOOL_REGISTRY")
-    def test_3_calculator_query(self, mock_registry, mock_eval, mock_extract, mock_client_class):
+    def test_3_calculator_query(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
         mock_extract.return_value = []
         mock_eval.return_value = MagicMock(sufficient=True, reason="")
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
-        call_resp = MagicMock()
-        fc = MagicMock()
-        fc.name = "calculate_product"
-        fc.args = {"a": 2, "b": 3}
-        call_resp.function_calls = [fc]
-        call_resp.candidates = [MagicMock()]
+        call_resp = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="calculate_product", args={"a": 2, "b": 3})],
+            model_message={"role": "model", "raw_message": "call"}
+        )
         
-        final_resp = MagicMock()
-        final_resp.function_calls = None
-        final_resp.text = "The product is 6."
-        final_resp.candidates = [MagicMock()]
+        final_resp = AgentResponse(
+            text="The product is 6.",
+            function_calls=[],
+            model_message={"role": "model", "raw_message": "ans"}
+        )
         
-        mock_models.generate_content.side_effect = [call_resp, final_resp]
+        mock_provider.generate_agent_step.side_effect = [call_resp, final_resp]
         mock_registry.get.return_value = MagicMock(return_value=6)
         
         ans, state = execute_agent_graph("Calculate 2 * 3")
@@ -65,27 +64,25 @@ class TestGraph(unittest.TestCase):
         self.assertEqual(len(state.tool_calls), 1)
 
     @patch("graph.TOOL_REGISTRY")
-    def test_4_local_rag(self, mock_registry, mock_eval, mock_extract, mock_client_class):
+    def test_4_local_rag(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
         mock_extract.return_value = []
         mock_eval.return_value = MagicMock(sufficient=True, reason="")
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
-        call_resp = MagicMock()
-        fc = MagicMock()
-        fc.name = "search_local_knowledge"
-        fc.args = {"query": "RAG"}
-        call_resp.function_calls = [fc]
-        call_resp.candidates = [MagicMock()]
+        call_resp = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_local_knowledge", args={"query": "RAG"})],
+            model_message={"role": "model", "raw_message": "call"}
+        )
         
-        final_resp = MagicMock()
-        final_resp.function_calls = None
-        final_resp.text = "RAG is great."
-        final_resp.candidates = [MagicMock()]
+        final_resp = AgentResponse(
+            text="RAG is great.",
+            function_calls=[],
+            model_message={"role": "model", "raw_message": "ans"}
+        )
         
-        mock_models.generate_content.side_effect = [call_resp, final_resp]
+        mock_provider.generate_agent_step.side_effect = [call_resp, final_resp]
         mock_registry.get.return_value = MagicMock(return_value="[LOCAL] RAG is great.")
         
         ans, state = execute_agent_graph("What is RAG?")
@@ -93,27 +90,25 @@ class TestGraph(unittest.TestCase):
         self.assertEqual(state.tool_calls[0]["name"], "search_local_knowledge")
 
     @patch("graph.TOOL_REGISTRY")
-    def test_5_web_query(self, mock_registry, mock_eval, mock_extract, mock_client_class):
+    def test_5_web_query(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
         mock_extract.return_value = []
         mock_eval.return_value = MagicMock(sufficient=True, reason="")
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
-        call_resp = MagicMock()
-        fc = MagicMock()
-        fc.name = "search_web"
-        fc.args = {"query": "News"}
-        call_resp.function_calls = [fc]
-        call_resp.candidates = [MagicMock()]
+        call_resp = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_web", args={"query": "News"})],
+            model_message={"role": "model", "raw_message": "call"}
+        )
         
-        final_resp = MagicMock()
-        final_resp.function_calls = None
-        final_resp.text = "Latest news."
-        final_resp.candidates = [MagicMock()]
+        final_resp = AgentResponse(
+            text="Latest news.",
+            function_calls=[],
+            model_message={"role": "model", "raw_message": "ans"}
+        )
         
-        mock_models.generate_content.side_effect = [call_resp, final_resp]
+        mock_provider.generate_agent_step.side_effect = [call_resp, final_resp]
         mock_registry.get.return_value = MagicMock(return_value="[WEB] Latest news.")
         
         ans, state = execute_agent_graph("What is the latest news?")
@@ -122,13 +117,11 @@ class TestGraph(unittest.TestCase):
 
     @patch("planning.create_research_plan")
     @patch("graph.TOOL_REGISTRY")
-    def test_6_comparative_research(self, mock_registry, mock_plan, mock_eval, mock_extract, mock_client_class):
+    def test_6_comparative_research(self, mock_registry, mock_plan, mock_eval, mock_extract, mock_get_provider):
         mock_extract.return_value = []
         mock_eval.return_value = MagicMock(sufficient=True, reason="")
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
         plan_mock = MagicMock()
         plan_mock.requires_multi_source_research = True
@@ -136,26 +129,25 @@ class TestGraph(unittest.TestCase):
         plan_mock.requires_web = True
         mock_plan.return_value = plan_mock
 
-        call1 = MagicMock()
-        fc1 = MagicMock()
-        fc1.name = "search_local_knowledge"
-        fc1.args = {"query": "RAG local"}
-        call1.function_calls = [fc1]
-        call1.candidates = [MagicMock()]
+        call1 = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_local_knowledge", args={"query": "RAG local"})],
+            model_message={"role": "model"}
+        )
         
-        call2 = MagicMock()
-        fc2 = MagicMock()
-        fc2.name = "search_web"
-        fc2.args = {"query": "RAG web"}
-        call2.function_calls = [fc2]
-        call2.candidates = [MagicMock()]
+        call2 = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_web", args={"query": "RAG web"})],
+            model_message={"role": "model"}
+        )
         
-        final_resp = MagicMock()
-        final_resp.function_calls = None
-        final_resp.text = "Combined."
-        final_resp.candidates = [MagicMock()]
+        final_resp = AgentResponse(
+            text="Combined.",
+            function_calls=[],
+            model_message={"role": "model"}
+        )
         
-        mock_models.generate_content.side_effect = [call1, call2, final_resp]
+        mock_provider.generate_agent_step.side_effect = [call1, call2, final_resp]
         
         def tool_side_effect(**kwargs):
             if "query" in kwargs and "web" in kwargs["query"]:
@@ -170,26 +162,24 @@ class TestGraph(unittest.TestCase):
         self.assertEqual(state.tool_calls[1]["name"], "search_web")
 
     @patch("graph.TOOL_REGISTRY")
-    def test_7_reflection(self, mock_registry, mock_eval, mock_extract, mock_client_class):
+    def test_7_reflection(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
         mock_extract.return_value = []
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
-        call_resp = MagicMock()
-        fc = MagicMock()
-        fc.name = "search_local_knowledge"
-        fc.args = {"query": "RAG"}
-        call_resp.function_calls = [fc]
-        call_resp.candidates = [MagicMock()]
+        call_resp = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_local_knowledge", args={"query": "RAG"})],
+            model_message={"role": "model"}
+        )
         
-        final_resp = MagicMock()
-        final_resp.function_calls = None
-        final_resp.text = "Now it works."
-        final_resp.candidates = [MagicMock()]
+        final_resp = AgentResponse(
+            text="Now it works.",
+            function_calls=[],
+            model_message={"role": "model"}
+        )
         
-        mock_models.generate_content.side_effect = [call_resp, call_resp, final_resp]
+        mock_provider.generate_agent_step.side_effect = [call_resp, call_resp, final_resp]
         mock_registry.get.return_value = MagicMock(return_value="Local result")
         
         fail_eval = MagicMock()
@@ -207,27 +197,25 @@ class TestGraph(unittest.TestCase):
         self.assertEqual(ans, "Now it works.")
 
     @patch("graph.TOOL_REGISTRY")
-    def test_8_reflection_limit(self, mock_registry, mock_eval, mock_extract, mock_client_class):
+    def test_8_reflection_limit(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
         mock_extract.return_value = []
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
-        call_resp = MagicMock()
-        fc = MagicMock()
-        fc.name = "search_local_knowledge"
-        fc.args = {"query": "RAG"}
-        call_resp.function_calls = [fc]
-        call_resp.candidates = [MagicMock()]
+        call_resp = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_local_knowledge", args={"query": "RAG"})],
+            model_message={"role": "model"}
+        )
         
-        final_resp = MagicMock()
-        final_resp.function_calls = None
-        final_resp.text = "I tried but failed."
-        final_resp.candidates = [MagicMock()]
+        final_resp = AgentResponse(
+            text="I tried but failed.",
+            function_calls=[],
+            model_message={"role": "model"}
+        )
         
         # Max reflections=2. So call_resp (iter 1), call_resp (iter 2), final_resp (iter 3)
-        mock_models.generate_content.side_effect = [call_resp, call_resp, final_resp]
+        mock_provider.generate_agent_step.side_effect = [call_resp, call_resp, final_resp]
         mock_registry.get.return_value = MagicMock(return_value="Local result")
         
         fail_eval = MagicMock()
@@ -240,44 +228,43 @@ class TestGraph(unittest.TestCase):
         self.assertEqual(state.reflection_attempts, 2)
         self.assertEqual(ans, "I tried but failed.")
 
-    def test_9_quality_check(self, mock_eval, mock_extract, mock_client_class):
+    def test_9_quality_check(self, mock_eval, mock_extract, mock_get_provider):
         mock_eval.return_value = MagicMock(sufficient=True, reason="")
         # First extraction returns unsupported claims, second returns empty (valid)
         mock_extract.side_effect = [["Unsupported"], []]
         
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
-        ans1 = MagicMock()
-        ans1.function_calls = None
-        ans1.text = "This claim is bad and unsupported."
-        ans1.candidates = [MagicMock()]
+        ans1 = AgentResponse(
+            text="This claim is bad and unsupported.",
+            function_calls=[],
+            model_message={"role": "model"}
+        )
         
-        ans2 = MagicMock()
-        ans2.function_calls = None
-        ans2.text = "This claim is better."
-        ans2.candidates = [MagicMock()]
+        ans2 = AgentResponse(
+            text="This claim is better.",
+            function_calls=[],
+            model_message={"role": "model"}
+        )
         
-        mock_models.generate_content.side_effect = [ans1, ans2]
+        mock_provider.generate_agent_step.side_effect = [ans1, ans2]
         
         ans, state = execute_agent_graph("Tell me something unsupported.")
         self.assertTrue(getattr(state, "refinement_attempted", False))
         self.assertEqual(ans, "This claim is better.")
 
-    def test_10_memory(self, mock_eval, mock_extract, mock_client_class):
+    def test_10_memory(self, mock_eval, mock_extract, mock_get_provider):
         mock_extract.return_value = []
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
-        resp = MagicMock()
-        resp.function_calls = None
-        resp.text = "Session active."
-        resp.candidates = [MagicMock()]
-        mock_models.generate_content.return_value = resp
+        resp = AgentResponse(
+            text="Session active.",
+            function_calls=[],
+            model_message={"role": "model"}
+        )
+        mock_provider.generate_agent_step.return_value = resp
         
         session = create_session()
         
@@ -286,42 +273,38 @@ class TestGraph(unittest.TestCase):
         
         self.assertEqual(len(session.memory.get_messages()), 4)
 
-    def test_11_guardrails(self, mock_eval, mock_extract, mock_client_class):
+    def test_11_guardrails(self, mock_eval, mock_extract, mock_get_provider):
         with self.assertRaises(ValueError):
             execute_agent_graph("")
             
         with self.assertRaises(ValueError):
             execute_agent_graph("test", max_iterations=0)
             
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
-        call_resp = MagicMock()
-        fc = MagicMock()
-        fc.name = "fake_tool"
-        fc.args = {}
-        call_resp.function_calls = [fc]
-        call_resp.candidates = [MagicMock()]
+        call_resp = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="fake_tool", args={})],
+            model_message={"role": "model"}
+        )
         
-        mock_models.generate_content.return_value = call_resp
+        mock_provider.generate_agent_step.return_value = call_resp
         
         with self.assertRaises(RuntimeError):
             execute_agent_graph("test")
 
-    def test_12_trace(self, mock_eval, mock_extract, mock_client_class):
+    def test_12_trace(self, mock_eval, mock_extract, mock_get_provider):
         mock_extract.return_value = []
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
-        resp = MagicMock()
-        resp.function_calls = None
-        resp.text = "Trace test."
-        resp.candidates = [MagicMock()]
-        mock_models.generate_content.return_value = resp
+        resp = AgentResponse(
+            text="Trace test.",
+            function_calls=[],
+            model_message={"role": "model"}
+        )
+        mock_provider.generate_agent_step.return_value = resp
         
         ans, state = execute_agent_graph("test")
         

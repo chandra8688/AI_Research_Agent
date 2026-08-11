@@ -81,3 +81,95 @@ class OpenRouterProvider:
         except Exception as e:
             from .errors import FatalProviderError
             raise FatalProviderError(f"OpenRouter JSON does not match schema: {str(e)}")
+
+    def generate_agent_step(self, messages: list[dict], tools: list[dict]) -> "AgentResponse":
+        from . import AgentResponse, ToolCall
+        import json
+        import urllib.request
+        import urllib.error
+        
+        openrouter_tools = []
+        for t in tools:
+            openrouter_tools.append({
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t["description"],
+                    "parameters": t["parameters"]
+                }
+            })
+            
+        or_messages = []
+        last_tool_call_id = "unknown_id"
+        
+        for msg in messages:
+            if msg.get("role") == "user":
+                if "function_responses" in msg:
+                    for resp in msg["function_responses"]:
+                        or_messages.append({
+                            "role": "tool",
+                            "tool_call_id": last_tool_call_id,
+                            "name": resp["name"],
+                            "content": str(resp["response"].get("result", ""))
+                        })
+                else:
+                    or_messages.append({"role": "user", "content": msg["content"]})
+            elif msg.get("role") == "model":
+                if "raw_message" in msg:
+                    raw = msg["raw_message"]
+                    or_messages.append(raw)
+                    if "tool_calls" in raw and raw["tool_calls"]:
+                        last_tool_call_id = raw["tool_calls"][0]["id"]
+                        
+        payload = {
+            "model": "google/gemma-2-9b-it:free",
+            "messages": or_messages,
+            "tools": openrouter_tools
+        }
+        
+        req = urllib.request.Request(
+            "https://openrouter.ai/api/v1/chat/completions",
+            data=json.dumps(payload).encode('utf-8'),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            },
+            method="POST"
+        )
+        
+        try:
+            with urllib.request.urlopen(req) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                
+            choice = result["choices"][0]
+            msg_obj = choice["message"]
+            
+            function_calls = []
+            if "tool_calls" in msg_obj and msg_obj["tool_calls"]:
+                for tc in msg_obj["tool_calls"]:
+                    if tc["type"] == "function":
+                        args_str = tc["function"]["arguments"]
+                        try:
+                            args_dict = json.loads(args_str)
+                        except:
+                            args_dict = {}
+                        function_calls.append(ToolCall(name=tc["function"]["name"], args=args_dict))
+                        
+            return AgentResponse(
+                text=msg_obj.get("content"),
+                function_calls=function_calls,
+                model_message={"role": "model", "raw_message": msg_obj}
+            )
+            
+        except urllib.error.HTTPError as e:
+            if e.code in [429, 500, 502, 503, 504]:
+                from .errors import RetryableProviderError
+                raise RetryableProviderError(f"OpenRouter API Error: {e.code} - {e.read().decode('utf-8')}")
+            from .errors import FatalProviderError
+            raise FatalProviderError(f"OpenRouter API Error: {e.code} - {e.read().decode('utf-8')}")
+        except urllib.error.URLError as e:
+            from .errors import RetryableProviderError
+            raise RetryableProviderError(f"OpenRouter network error: {str(e)}")
+        except Exception as e:
+            from .errors import FatalProviderError
+            raise FatalProviderError(f"Unexpected error during OpenRouter tool call: {str(e)}")

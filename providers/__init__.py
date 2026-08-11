@@ -3,10 +3,26 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
+from dataclasses import dataclass
+from typing import Any
+
+@dataclass
+class ToolCall:
+    name: str
+    args: dict[str, Any]
+
+@dataclass
+class AgentResponse:
+    text: str | None
+    function_calls: list[ToolCall]
+    model_message: dict[str, Any]
+
 class LLMProvider(Protocol):
     def generate(self, prompt: str) -> str:
         ...
     def generate_structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
+        ...
+    def generate_agent_step(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> AgentResponse:
         ...
 
 def get_provider(name: str | None = None) -> LLMProvider:

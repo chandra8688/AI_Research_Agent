@@ -65,20 +65,20 @@ class TestResearchSynthesis(unittest.TestCase):
         self.assertIn("[LOCAL: file.txt]", text)
         self.assertIn("[WEB: Site (url)]", text)
 
-    @patch("agent.genai.Client")
-    def test_8_existing_guardrails_still_work(self, mock_client_class):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+    @patch("providers.get_provider")
+    def test_8_existing_guardrails_still_work(self, mock_get_provider):
+        from providers import AgentResponse, ToolCall
+        
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
         # Test max iterations limit
-        mock_response = MagicMock()
-        fc = MagicMock()
-        fc.name = "calculate_product"
-        fc.args = {"a": 2, "b": 3}
-        mock_response.function_calls = [fc]
-        mock_models.generate_content.return_value = mock_response
+        mock_response = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="calculate_product", args={"a": 2, "b": 3})],
+            model_message={"role": "model", "raw_message": "dummy"}
+        )
+        mock_provider.generate_agent_step.return_value = mock_response
 
         # This will loop until max_iterations
         with self.assertRaises(RuntimeError) as context:

@@ -71,17 +71,19 @@ class TestQuality(unittest.TestCase):
         self.assertFalse(report.assessments[0].supported)
         self.assertEqual(report.overall_grounding_score, 0.0)
 
-    @patch("agent.genai.Client")
-    def test_9_agent_integration(self, mock_client_class):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+    @patch("providers.get_provider")
+    def test_9_agent_integration(self, mock_get_provider):
+        from providers import AgentResponse
         
-        mock_response = MagicMock()
-        mock_response.function_calls = None
-        mock_response.text = "This is a basic answer."
-        mock_models.generate_content.return_value = mock_response
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+        
+        mock_response = AgentResponse(
+            text="This is a basic answer.",
+            function_calls=[],
+            model_message={"role": "model", "raw_message": "dummy"}
+        )
+        mock_provider.generate_agent_step.return_value = mock_response
 
         # Execute agent
         ans, state = execute_agent("What is this?")
@@ -89,26 +91,28 @@ class TestQuality(unittest.TestCase):
         # Verify research_quality is present
         self.assertIsNotNone(state.research_quality)
         
-    @patch("agent.genai.Client")
-    def test_10_refinement_guard(self, mock_client_class):
-        mock_client = MagicMock()
-        mock_client_class.return_value = mock_client
-        mock_models = MagicMock()
-        mock_client.models = mock_models
+    @patch("providers.get_provider")
+    def test_10_refinement_guard(self, mock_get_provider):
+        from providers import AgentResponse
+        
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
         
         # Return unsupported claim
-        mock_response_1 = MagicMock()
-        mock_response_1.function_calls = None
-        mock_response_1.text = "RAG was invented in 2025."
-        mock_response_1.candidates = [MagicMock()]
+        mock_response_1 = AgentResponse(
+            text="RAG was invented in 2025.",
+            function_calls=[],
+            model_message={"role": "model", "raw_message": "dummy1"}
+        )
         
         # Then next iteration
-        mock_response_2 = MagicMock()
-        mock_response_2.function_calls = None
-        mock_response_2.text = "RAG was invented recently."
-        mock_response_2.candidates = [MagicMock()]
+        mock_response_2 = AgentResponse(
+            text="RAG was invented recently.",
+            function_calls=[],
+            model_message={"role": "model", "raw_message": "dummy2"}
+        )
         
-        mock_models.generate_content.side_effect = [mock_response_1, mock_response_2]
+        mock_provider.generate_agent_step.side_effect = [mock_response_1, mock_response_2]
 
         ans, state = execute_agent("When was RAG invented?")
         
@@ -116,7 +120,7 @@ class TestQuality(unittest.TestCase):
         self.assertTrue(getattr(state, "refinement_attempted", False))
         
         # Wait, how many generate_content calls?
-        self.assertEqual(mock_models.generate_content.call_count, 2)
+        self.assertEqual(mock_provider.generate_agent_step.call_count, 2)
 
 if __name__ == "__main__":
     unittest.main()

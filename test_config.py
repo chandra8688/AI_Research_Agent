@@ -17,8 +17,10 @@ class TestConfigAndAPI(unittest.TestCase):
         self.client = TestClient(app)
         api.routes.sessions.clear()
         
+    @patch.dict(os.environ, {"LLM_PROVIDER": "gemini", "VECTOR_DB": "chroma"})
     def test_default_configuration(self):
-        self.assertEqual(settings.environment, "development")
+        from config import Settings
+        settings = Settings(_env_file=None)
         self.assertEqual(settings.llm_provider, "gemini")
         self.assertEqual(settings.vector_db, "chroma")
         

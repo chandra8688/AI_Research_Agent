@@ -1,7 +1,7 @@
 import sys
 import argparse
 from dotenv import load_dotenv
-from google.genai import errors
+from providers.errors import RetryableProviderError
 import time
 
 from rag.pipeline import initialize_knowledge_base

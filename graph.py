@@ -1,13 +1,11 @@
 import os
 from typing import TypedDict, Any
 from langgraph.graph import StateGraph, START, END
-from google import genai
-from google.genai import errors, types
 from config import settings
 from planning import create_research_plan
 from state import AgentState
 from memory import create_session, AgentSession
-from agent import TOOL_REGISTRY, FUNCTION_DECLARATIONS, MODEL
+from agent import TOOL_REGISTRY, FUNCTION_DECLARATIONS
 from research import parse_local_evidence, parse_web_evidence, format_combined_evidence
 from reflection import evaluate_evidence
 from quality import extract_claims, assess_claims, validate_citations
@@ -36,10 +34,6 @@ def validate(state: GraphState):
     if not isinstance(max_iterations, int) or max_iterations < 1:
         raise ValueError("max_iterations must be greater than 0.")
         
-    api_key = settings.gemini_api_key
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY environment variable is missing or empty.")
-        
     if session is None:
         session = create_session()
         
@@ -50,9 +44,7 @@ def validate(state: GraphState):
     
     contents = []
     for msg in recent_messages:
-        contents.append(
-            types.Content(role=msg.role, parts=[types.Part.from_text(text=msg.content)])
-        )
+        contents.append({"role": msg.role, "content": msg.content})
         
     agent_state = AgentState(query=prompt, contents=contents)
     agent_state.add_trace("graph_start")
@@ -93,8 +85,8 @@ def plan_research(state: GraphState):
     if not plan.requires_local_knowledge and not plan.requires_web and not plan.requires_calculation:
         guidance += "- No specialized tools required. Allow direct answering.\n"
         
-    if agent_state.contents and agent_state.contents[-1].role == "user":
-        agent_state.contents[-1].parts[0].text += guidance
+    if agent_state.contents and agent_state.contents[-1].get("role") == "user":
+        agent_state.contents[-1]["content"] += guidance
         
     return {"agent_state": agent_state}
 
@@ -111,23 +103,19 @@ def agent_decide(state: GraphState):
     agent_state.add_trace("iteration_start")
     print(f"\n[AGENT ITERATION {agent_state.iteration}]")
     
-    client = genai.Client(api_key=settings.gemini_api_key)
-    tool_config = types.Tool(function_declarations=FUNCTION_DECLARATIONS)
-    config = types.GenerateContentConfig(tools=[tool_config])
+    from providers import get_provider
+    primary_name = settings.llm_primary_provider or settings.llm_provider
+    provider = get_provider(primary_name)
     
     try:
-        response = client.models.generate_content(
-            model=MODEL,
-            contents=agent_state.contents,
-            config=config,
-        )
-    except errors.APIError as e:
-        err_msg = f"Gemini API Error: {str(e)}"
+        response = provider.generate_agent_step(agent_state.contents, FUNCTION_DECLARATIONS)
+    except Exception as e:
+        err_msg = f"Provider API Error: {str(e)}"
         agent_state.add_trace("agent_error", {"error": err_msg})
         return {"error": err_msg, "next_action": "end"}
         
     if response.function_calls:
-        agent_state.contents.append(response.candidates[0].content)
+        agent_state.contents.append(response.model_message)
         return {"llm_response": response, "next_action": "tools", "agent_state": agent_state}
     else:
         return {"llm_response": response, "next_action": "quality_check", "agent_state": agent_state}
@@ -195,17 +183,14 @@ def collect_evidence(state: GraphState):
             has_local = any(e.source_type == "local" for e in agent_state.multi_source_evidence)
             has_web = any(e.source_type == "web" for e in agent_state.multi_source_evidence)
             if not (has_local and has_web):
-                res_mod = (f"{result}\n\n[SYSTEM GUIDANCE]: You have collected partial evidence. "
-                          f"Your research plan requires BOTH local and web sources. "
-                          f"Please call the other required search tool.")
-                func_response_part = types.Part.from_function_response(name=fc_name, response={"result": res_mod})
-                agent_state.contents.append(types.Content(role="user", parts=[func_response_part]))
+                func_response_part = {"name": fc_name, "response": {"result": res_mod}}
+                agent_state.contents.append({"role": "user", "function_responses": [func_response_part]})
                 return {"agent_state": agent_state, "next_action": "agent_decide"}
                 
         return {"agent_state": agent_state, "next_action": "reflection"}
         
-    func_response_part = types.Part.from_function_response(name=fc_name, response={"result": result})
-    agent_state.contents.append(types.Content(role="user", parts=[func_response_part]))
+    func_response_part = {"name": fc_name, "response": {"result": result}}
+    agent_state.contents.append({"role": "user", "function_responses": [func_response_part]})
     return {"agent_state": agent_state, "next_action": "agent_decide"}
 
 def reflection(state: GraphState):
@@ -240,8 +225,8 @@ def reflection(state: GraphState):
                   f"- Identify the source type supporting important claims.\n"
                   f"- Add source attribution to the final answer context: [LOCAL: filename] or [WEB: URL/title].")
                   
-    func_response_part = types.Part.from_function_response(name=fc_name, response={"result": res_mod})
-    agent_state.contents.append(types.Content(role="user", parts=[func_response_part]))
+    func_response_part = {"name": fc_name, "response": {"result": res_mod}}
+    agent_state.contents.append({"role": "user", "function_responses": [func_response_part]})
     
     return {"agent_state": agent_state, "next_action": "agent_decide"}
 
@@ -290,8 +275,8 @@ def quality_check(state: GraphState):
             warning += "Some citations are invalid or do not match retrieved sources. Only cite retrieved sources exactly.\n"
         warning += "Please revise your answer. This is your only refinement attempt."
         
-        agent_state.contents.append(response.candidates[0].content)
-        agent_state.contents.append(types.Content(role="user", parts=[types.Part.from_text(text=warning)]))
+        agent_state.contents.append(response.model_message)
+        agent_state.contents.append({"role": "user", "content": warning})
         
         return {"agent_state": agent_state, "next_action": "agent_decide"}
         
