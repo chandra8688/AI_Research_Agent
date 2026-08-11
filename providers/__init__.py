@@ -1,8 +1,12 @@
 import os
 from typing import Protocol
 
+from pydantic import BaseModel
+
 class LLMProvider(Protocol):
     def generate(self, prompt: str) -> str:
+        ...
+    def generate_structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
         ...
 
 def get_provider(name: str | None = None) -> LLMProvider:

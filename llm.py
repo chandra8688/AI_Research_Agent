@@ -36,26 +36,36 @@ def call_llm(prompt: str) -> str:
         raise
 
 def call_llm_structured(prompt: str, schema: type[BaseModel]) -> BaseModel:
-    """Calls the Gemini API and returns a structured response parsed into the given Pydantic schema."""
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY environment variable is missing or empty.")
+    """Calls the configured LLM API (Gemini or OpenRouter) and returns a structured response parsed into the given Pydantic schema."""
+    from config import settings
+    from providers import get_provider
+    from providers.errors import RetryableProviderError, FatalProviderError
+    
+    primary_name = settings.llm_primary_provider or settings.llm_provider
+    print(f"[LLM] Primary provider (structured): {primary_name}")
+    primary_provider = get_provider(primary_name)
     
     try:
-        client = genai.Client(api_key=api_key)
-        response = client.models.generate_content(
-            model='gemini-3.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=schema,
-            ),
-        )
-        return response.parsed
-    except errors.APIError as e:
-        raise RuntimeError(f"Gemini API Error: {str(e)}")
+        return primary_provider.generate_structured(prompt, schema)
+    except RetryableProviderError as e:
+        if not settings.llm_fallback_enabled:
+            raise RuntimeError(str(e))
+            
+        print(f"[LLM] Primary provider structured failed: {str(e)}")
+        print(f"[LLM] Falling back to (structured): {settings.llm_fallback_provider}")
+        
+        try:
+            fallback_provider = get_provider(settings.llm_fallback_provider)
+            response = fallback_provider.generate_structured(prompt, schema)
+            print("[LLM] Fallback provider structured succeeded")
+            return response
+        except Exception as fallback_e:
+            raise RuntimeError(f"Both providers failed.\nPrimary error: {str(e)}\nFallback error: {str(fallback_e)}")
+    except FatalProviderError as e:
+        # Non-retryable failure, surface immediately without fallback
+        raise RuntimeError(str(e))
     except Exception as e:
-        raise RuntimeError(f"Unexpected error during structured LLM call: {str(e)}")
+        raise RuntimeError(str(e))
 
 def call_llm_with_tools(prompt: str) -> str:
     """Manually handles a multi-turn tool calling loop with the Gemini API."""

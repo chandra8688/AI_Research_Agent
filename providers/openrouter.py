@@ -2,6 +2,7 @@ import os
 import json
 import urllib.request
 import urllib.error
+from pydantic import BaseModel
 
 class OpenRouterProvider:
     def __init__(self):
@@ -49,6 +50,34 @@ class OpenRouterProvider:
         except urllib.error.URLError as e:
             from .errors import RetryableProviderError
             raise RetryableProviderError(f"OpenRouter network error: {str(e)}")
-        except Exception as e:
             from .errors import FatalProviderError
             raise FatalProviderError(f"Unexpected error during OpenRouter LLM call: {str(e)}")
+
+    def generate_structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
+        # Ask the model to output JSON adhering to the schema
+        import json
+        schema_json = json.dumps(schema.model_json_schema())
+        structured_prompt = prompt + f"\n\nYou MUST respond in valid JSON format matching exactly this schema:\n{schema_json}\nReturn ONLY the JSON. Do not include markdown code blocks or any other text."
+        
+        response_text = self.generate(structured_prompt)
+        
+        import json
+        text = response_text.strip()
+        # Clean up response if the model returned markdown code blocks
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+        
+        try:
+            parsed = json.loads(text)
+            return schema(**parsed)
+        except json.JSONDecodeError:
+            from .errors import FatalProviderError
+            raise FatalProviderError(f"OpenRouter returned invalid JSON: {response_text}")
+        except Exception as e:
+            from .errors import FatalProviderError
+            raise FatalProviderError(f"OpenRouter JSON does not match schema: {str(e)}")
