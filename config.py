@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     llm_primary_provider: str | None = None
     llm_fallback_provider: str = "openrouter"
     llm_fallback_enabled: bool = False
-    llm_model: str = "google/gemma-4-31b-it:free"
+    llm_model: str = "openai/gpt-oss-20b:free"
     
     gemini_api_key: str | None = None
     openrouter_api_key: str | None = None
