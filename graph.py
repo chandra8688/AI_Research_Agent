@@ -18,6 +18,7 @@ class GraphState(TypedDict):
     llm_response: Any
     error: str | None
     next_action: str
+    is_simple: bool
 
 def validate(state: GraphState):
     prompt = state.get("prompt", "")
@@ -49,12 +50,18 @@ def validate(state: GraphState):
     agent_state = AgentState(query=prompt, contents=contents)
     agent_state.add_trace("graph_start")
     
+    from planning import is_simple_query
+    is_simple = is_simple_query(prompt)
+    if is_simple:
+        agent_state.add_trace("classified_as_simple_query")
+
     return {
         "prompt": prompt,
         "max_iterations": max_iterations,
         "session": session,
         "agent_state": agent_state,
-        "error": None
+        "error": None,
+        "is_simple": is_simple
     }
 
 def plan_research(state: GraphState):
@@ -110,6 +117,10 @@ def agent_decide(state: GraphState):
     try:
         response = provider.generate_agent_step(agent_state.contents, FUNCTION_DECLARATIONS)
     except Exception as e:
+        from providers.errors import ProviderError
+        if isinstance(e, ProviderError):
+            agent_state.add_trace("agent_error", {"error": str(e)})
+            return {"error": e, "next_action": "end"}
         err_msg = f"Provider API Error: {str(e)}"
         agent_state.add_trace("agent_error", {"error": err_msg})
         return {"error": err_msg, "next_action": "end"}
@@ -291,6 +302,36 @@ def force_synthesis(state: GraphState):
 
     return {"agent_state": agent_state, "llm_response": response, "next_action": "quality_check"}
 
+def fast_llm_path(state: GraphState):
+    """Directly answers simple queries bypassing the tool loop."""
+    agent_state = state["agent_state"]
+    prompt = state["prompt"]
+    
+    from providers import get_provider, AgentResponse
+    from providers.errors import ProviderError
+    provider_name = settings.llm_primary_provider or settings.llm_provider
+    provider = get_provider(provider_name)
+    
+    try:
+        final_text = provider.generate(prompt)
+    except Exception as e:
+        if isinstance(e, ProviderError):
+            agent_state.add_trace("agent_error", {"error": str(e)})
+            return {"error": e, "next_action": "end"}
+        final_text = f"Error generating fast response: {str(e)}"
+        
+    if not final_text or not final_text.strip():
+        final_text = "The model returned an empty response."
+        
+    response = AgentResponse(
+        text=final_text,
+        function_calls=[],
+        model_message={"role": "assistant", "content": final_text}
+    )
+    
+    agent_state.add_trace("fast_llm_path")
+    return {"agent_state": agent_state, "llm_response": response, "next_action": "quality_check"}
+
 def quality_check(state: GraphState):
     agent_state = state["agent_state"]
     response = state["llm_response"]
@@ -304,6 +345,14 @@ def quality_check(state: GraphState):
     claims = extract_claims(final_text)
     agent_state.add_trace("claim_extraction", {"count": len(claims)})
     
+    if state.get("is_simple", False):
+        # Skip evidence grounding for simple fast-path queries
+        agent_state.final_answer = final_text
+        agent_state.add_trace("final_answer")
+        agent_state.add_trace("graph_end")
+        session.memory.add_assistant_message(final_text)
+        return {"agent_state": agent_state, "next_action": "end"}
+        
     quality_report = assess_claims(claims, agent_state.multi_source_evidence)
     agent_state.research_quality = quality_report
     
@@ -353,6 +402,11 @@ def route_agent_decide(state: GraphState):
         return "end"
     return state.get("next_action")
 
+def route_validate(state: GraphState):
+    if state.get("is_simple"):
+        return "fast_llm_path"
+    return "plan_research"
+
 def route_tools(state: GraphState):
     if state.get("error"):
         return "end"
@@ -384,10 +438,20 @@ workflow.add_node("execute_tools", execute_tools)
 workflow.add_node("collect_evidence", collect_evidence)
 workflow.add_node("reflection", reflection)
 workflow.add_node("force_synthesis", force_synthesis)
+workflow.add_node("fast_llm_path", fast_llm_path)
 workflow.add_node("quality_check", quality_check)
 
 workflow.add_edge(START, "validate")
-workflow.add_edge("validate", "plan_research")
+
+workflow.add_conditional_edges(
+    "validate",
+    route_validate,
+    {
+        "fast_llm_path": "fast_llm_path",
+        "plan_research": "plan_research"
+    }
+)
+
 workflow.add_edge("plan_research", "agent_decide")
 
 workflow.add_conditional_edges(
@@ -440,6 +504,8 @@ workflow.add_conditional_edges(
     }
 )
 
+workflow.add_edge("fast_llm_path", "quality_check")
+
 workflow.add_conditional_edges(
     "quality_check",
     route_quality,
@@ -462,6 +528,9 @@ def execute_agent_graph(prompt: str, max_iterations: int | None = None, session:
     
     agent_state = final_state.get("agent_state")
     if final_state.get("error"):
-        raise RuntimeError(final_state["error"])
+        err = final_state["error"]
+        if isinstance(err, Exception):
+            raise err
+        raise RuntimeError(err)
         
     return agent_state.final_answer, agent_state

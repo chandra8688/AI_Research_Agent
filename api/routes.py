@@ -102,11 +102,22 @@ def chat_endpoint(request: ChatRequest):
     except ValueError as e:
         logger.warning(f"Validation error during agent execution: {e}")
         raise HTTPException(status_code=400, detail=str(e))
-    except RuntimeError as e:
-        # Safe controlled runtime errors from agent
-        logger.error(f"Runtime error during agent execution: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
+        from providers.errors import RetryableProviderError, FatalProviderError
+        if isinstance(e, RetryableProviderError):
+            logger.warning(f"Retryable provider error: {e}")
+            if "429" in str(e):
+                raise HTTPException(status_code=429, detail="The AI provider is currently overwhelmed or out of quota. Please try again later.")
+            raise HTTPException(status_code=503, detail="The AI provider experienced a transient network issue. Please retry your request.")
+            
+        if isinstance(e, FatalProviderError):
+            logger.error(f"Fatal provider error: {e}")
+            raise HTTPException(status_code=502, detail="The AI provider encountered a fatal error processing the request.")
+            
+        if isinstance(e, RuntimeError):
+            logger.error(f"Runtime error during agent execution: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+            
         # Catch unexpected errors without exposing internals
         logger.exception("Unexpected error during agent execution.")
         raise HTTPException(status_code=500, detail="An unexpected error occurred during execution.")

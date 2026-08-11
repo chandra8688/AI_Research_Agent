@@ -1,6 +1,34 @@
 from dataclasses import dataclass, field
 import re
 
+def is_simple_query(query: str) -> bool:
+    """Conservatively classifies a query as simple factual to use the fast LLM path."""
+    if not query:
+        return False
+        
+    query_lower = query.lower().strip()
+    
+    # Too long? Probably complex.
+    if len(query_lower) > 100:
+        return False
+        
+    # Keywords that imply research, recency, comparison, or evidence
+    complex_keywords = [
+        "latest", "current", "compare", "versus", "vs", "developments",
+        "2024", "2025", "2026", "evidence", "sources", "citations",
+        "research", "find", "search", "differences", "market", "ecosystem"
+    ]
+    if any(kw in query_lower for kw in complex_keywords):
+        return False
+        
+    # Must start with simple trivia question patterns
+    simple_starts = ["what is", "who is", "who invented", "where is", "what's", "who's", "when did"]
+    if any(query_lower.startswith(start) for start in simple_starts):
+        return True
+        
+    # Very conservative default
+    return False
+
 @dataclass
 class ResearchPlan:
     original_query: str

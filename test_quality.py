@@ -86,7 +86,7 @@ class TestQuality(unittest.TestCase):
         mock_provider.generate_agent_step.return_value = mock_response
 
         # Execute agent
-        ans, state = execute_agent("What is this?")
+        ans, state = execute_agent("Analyze this data.")
         
         # Verify research_quality is present
         self.assertIsNotNone(state.research_quality)

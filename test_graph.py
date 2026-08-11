@@ -33,7 +33,7 @@ class TestGraph(unittest.TestCase):
         )
         mock_provider.generate_agent_step.return_value = mock_response
         
-        ans, state = execute_agent_graph("What is 2+2?")
+        ans, state = execute_agent_graph("Explain this concept")
         self.assertEqual(ans, "This is a simple answer.")
         self.assertEqual(state.iteration, 1)
 
@@ -85,7 +85,7 @@ class TestGraph(unittest.TestCase):
         mock_provider.generate_agent_step.side_effect = [call_resp, final_resp]
         mock_registry.get.return_value = MagicMock(return_value="[LOCAL] RAG is great.")
         
-        ans, state = execute_agent_graph("What is RAG?")
+        ans, state = execute_agent_graph("Explain RAG")
         self.assertEqual(ans, "RAG is great.")
         self.assertEqual(state.tool_calls[0]["name"], "search_local_knowledge")
 
@@ -111,7 +111,7 @@ class TestGraph(unittest.TestCase):
         mock_provider.generate_agent_step.side_effect = [call_resp, final_resp]
         mock_registry.get.return_value = MagicMock(return_value="[WEB] Latest news.")
         
-        ans, state = execute_agent_graph("What is the latest news?")
+        ans, state = execute_agent_graph("Find the latest news")
         self.assertEqual(ans, "Latest news.")
         self.assertEqual(state.tool_calls[0]["name"], "search_web")
 
@@ -192,7 +192,7 @@ class TestGraph(unittest.TestCase):
         
         mock_eval.side_effect = [fail_eval, succ_eval]
         
-        ans, state = execute_agent_graph("What is RAG?")
+        ans, state = execute_agent_graph("Explain RAG")
         self.assertEqual(state.reflection_attempts, 2)
         self.assertEqual(ans, "Now it works.")
 
@@ -232,7 +232,7 @@ class TestGraph(unittest.TestCase):
         # max_reflection_attempts=2 (default), so:
         # reflection attempt 1 → insufficient, attempts remain → agent_decide → another search
         # reflection attempt 2 → insufficient, limit reached → force_synthesis → quality_check
-        ans, state = execute_agent_graph("What is RAG?", max_iterations=10)
+        ans, state = execute_agent_graph("Explain RAG", max_iterations=10)
 
         self.assertEqual(state.reflection_attempts, 2)
         # force_synthesis produces the answer via provider.generate(), not generate_agent_step
@@ -357,7 +357,7 @@ class TestGraph(unittest.TestCase):
         # Only 1 reflection → attempt 1 < max_reflection_attempts(2) → routes back to agent_decide
         mock_eval.return_value = MagicMock(sufficient=False, reason="Only one source, need more.")
 
-        ans, state = execute_agent_graph("What is RAG?")
+        ans, state = execute_agent_graph("Explain RAG")
 
         # Verify: agent_decide was called again (generate_agent_step called twice)
         self.assertEqual(mock_provider.generate_agent_step.call_count, 2)
@@ -390,7 +390,7 @@ class TestGraph(unittest.TestCase):
         # Always insufficient → after 2 attempts, limit hit → force_synthesis
         mock_eval.return_value = MagicMock(sufficient=False, reason="Always insufficient.")
 
-        ans, state = execute_agent_graph("What is RAG?", max_iterations=10)
+        ans, state = execute_agent_graph("Explain RAG", max_iterations=10)
 
         # force_synthesis must be in trace
         self.assertIn("force_synthesis", [t.event_type for t in state.trace])
@@ -482,6 +482,37 @@ class TestGraph(unittest.TestCase):
         self.assertIn("QuantumScape", synthesis_prompt)
         # Evidence accumulation: both web items present in state
         self.assertEqual(len(state.multi_source_evidence), 2)
+
+    @patch("planning.is_simple_query")
+    def test_17_fast_path(self, mock_is_simple, mock_eval, mock_extract, mock_get_provider):
+        """TEST E: fast path for simple queries bypasses tools."""
+        mock_extract.return_value = []
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+        
+        mock_is_simple.return_value = True
+        mock_provider.generate.return_value = "Fast answer."
+        
+        ans, state = execute_agent_graph("What is 2+2?", max_iterations=10)
+        
+        # Must have fast_llm_path in trace
+        self.assertIn("fast_llm_path", [t.event_type for t in state.trace])
+        self.assertEqual(ans, "Fast answer.")
+        mock_provider.generate.assert_called_once()
+        mock_provider.generate_agent_step.assert_not_called()
+
+    @patch("planning.is_simple_query")
+    def test_18_provider_error(self, mock_is_simple, mock_eval, mock_extract, mock_get_provider):
+        """TEST F: Provider error bubbles up correctly."""
+        from providers.errors import RetryableProviderError
+        mock_is_simple.return_value = False
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+        
+        mock_provider.generate_agent_step.side_effect = RetryableProviderError("Rate limit")
+        
+        with self.assertRaises(RetryableProviderError):
+            execute_agent_graph("What is RAG?")
 
 if __name__ == "__main__":
     unittest.main()

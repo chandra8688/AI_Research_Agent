@@ -82,7 +82,7 @@ class TestResearchSynthesis(unittest.TestCase):
 
         # This will loop until max_iterations
         with self.assertRaises(RuntimeError) as context:
-            execute_agent("What is 2 * 3?", max_iterations=2)
+            execute_agent("Calculate 2 * 3", max_iterations=2)
             
         self.assertIn("did not produce a final answer", str(context.exception))
 

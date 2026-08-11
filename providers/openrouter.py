@@ -2,6 +2,7 @@ import os
 import json
 import urllib.request
 import urllib.error
+import http.client
 from pydantic import BaseModel
 
 class OpenRouterProvider:
@@ -51,6 +52,10 @@ class OpenRouterProvider:
         except urllib.error.URLError as e:
             from .errors import RetryableProviderError
             raise RetryableProviderError(f"OpenRouter network error: {str(e)}")
+        except http.client.IncompleteRead as e:
+            from .errors import RetryableProviderError
+            raise RetryableProviderError(f"OpenRouter connection dropped: {str(e)}")
+        except Exception as e:
             from .errors import FatalProviderError
             raise FatalProviderError(f"Unexpected error during OpenRouter LLM call: {str(e)}")
 
@@ -135,7 +140,7 @@ class OpenRouterProvider:
         import json
         import urllib.request
         import urllib.error
-        
+        import http.client
         import copy
         
         def lowercase_types(schema):
@@ -233,6 +238,9 @@ class OpenRouterProvider:
         except urllib.error.URLError as e:
             from .errors import RetryableProviderError
             raise RetryableProviderError(f"OpenRouter network error: {str(e)}")
+        except http.client.IncompleteRead as e:
+            from .errors import RetryableProviderError
+            raise RetryableProviderError(f"OpenRouter connection dropped: {str(e)}")
         except Exception as e:
             from .errors import FatalProviderError
             raise FatalProviderError(f"Unexpected error during OpenRouter tool call: {str(e)}")

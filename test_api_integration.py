@@ -64,6 +64,21 @@ class TestApiIntegration(unittest.TestCase):
         self.assertEqual(response.status_code, 500)
         self.assertIn("Something broke", response.json()["detail"])
 
+    @patch('api.routes.execute_agent')
+    def test_4b_provider_error(self, mock_execute):
+        # TEST 4b - Provider errors mapped correctly
+        from providers.errors import RetryableProviderError, FatalProviderError
+        
+        mock_execute.side_effect = RetryableProviderError("OpenRouter Error 429: Too many reqs")
+        response = client.post("/chat", json={"message": "Break"})
+        self.assertEqual(response.status_code, 429)
+        self.assertIn("quota", response.json()["detail"].lower())
+        
+        mock_execute.side_effect = FatalProviderError("OpenRouter Error 400: Bad req")
+        response = client.post("/chat", json={"message": "Break"})
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("fatal", response.json()["detail"].lower())
+
     def test_5_empty_input(self):
         # TEST 5 - Empty input
         response = client.post("/chat", json={"message": "   "})

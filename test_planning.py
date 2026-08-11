@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from planning import create_research_plan
+from planning import create_research_plan, is_simple_query
 from agent import execute_agent
 from state import AgentState
 
@@ -73,6 +73,19 @@ class TestPlanning(unittest.TestCase):
         # Check plan was added to trace
         has_plan_trace = any(t.event_type == "research_plan" for t in state.trace)
         self.assertTrue(has_plan_trace)
+
+    def test_8_is_simple_query(self):
+        # Should be simple
+        self.assertTrue(is_simple_query("What is the capital of Australia?"))
+        self.assertTrue(is_simple_query("Who invented the telephone?"))
+        self.assertTrue(is_simple_query("Where is Paris?"))
+        self.assertTrue(is_simple_query("What's 2+2?"))
+        
+        # Should be complex
+        self.assertFalse(is_simple_query("What are the latest developments in AI?"))
+        self.assertFalse(is_simple_query("Compare Toyota and BYD solid-state batteries."))
+        self.assertFalse(is_simple_query("Find evidence comparing these companies."))
+        self.assertFalse(is_simple_query("What is the capital of Australia? Please give me citations and research it deeply."))
 
 if __name__ == "__main__":
     unittest.main()
