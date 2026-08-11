@@ -89,14 +89,29 @@ class OpenRouterProvider:
         import urllib.request
         import urllib.error
         
+        import copy
+        
+        def lowercase_types(schema):
+            if isinstance(schema, dict):
+                if "type" in schema and isinstance(schema["type"], str):
+                    schema["type"] = schema["type"].lower()
+                for v in schema.values():
+                    lowercase_types(v)
+            elif isinstance(schema, list):
+                for item in schema:
+                    lowercase_types(item)
+                    
         openrouter_tools = []
         for t in tools:
+            params = copy.deepcopy(t["parameters"])
+            lowercase_types(params)
+            
             openrouter_tools.append({
                 "type": "function",
                 "function": {
                     "name": t["name"],
                     "description": t["description"],
-                    "parameters": t["parameters"]
+                    "parameters": params
                 }
             })
             
