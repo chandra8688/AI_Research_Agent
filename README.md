@@ -1,158 +1,152 @@
 # AI Research Agent
 
-The AI Research Agent is an advanced, agentic research system designed to autonomously retrieve, synthesize, and validate information across multiple sources. Built upon a custom orchestration layer migrated to **LangGraph**, it integrates carefully selected **LangChain Core** abstractions while maintaining robust proprietary implementations for Retrieval-Augmented Generation (RAG). The agent leverages vector retrieval, multi-source research capabilities (local knowledge and web search), rigorous evidence reflection, and strict citation grounding validation. It features conversation memory, seamless provider fallback between LLMs, a FastAPI backend, and an intuitive web UI for real-time interaction.
+The AI Research Agent is an advanced, autonomous research system designed to retrieve, synthesize, and validate information across multiple sources. Built on LangGraph orchestration, it conducts multi-step deep research and uses provider abstraction to maintain uptime.
 
-## Features
+## What It Does
+The system takes a user query, plans a research approach, and uses autonomous agents to search the web and local documents. It compiles evidence, critically reflects on whether it has sufficient information to answer the question, and enforces strict citation grounding. It also features a "fast path" to quickly answer simple factual queries without unnecessary deep research.
 
-- Agentic tool selection
-- Local RAG
-- Chroma vector database
-- Pinecone-compatible backend
-- Retrieval fallback
-- Multi-retriever fusion
-- Reciprocal Rank Fusion
-- Web search
-- Calculator
-- Reflection
-- Research planning
-- Multi-source evidence synthesis
-- Claim grounding
-- Citation validation
-- Conversation memory
-- Gemini/OpenRouter provider fallback
-- LangGraph orchestration
-- LangChain Core abstractions
-- FastAPI API
-- Web UI
-- Observability/tracing
-- Offline evaluation suite
+## Core Capabilities
+- **LangGraph orchestration**: Deterministic cyclic state management for agentic workflows.
+- **Web research/search**: Live web search integration.
+- **RAG**: Retrieval-Augmented Generation across multiple sources.
+- **Chroma vector database**: Local embeddings storage.
+- **Structured LLM outputs**: Enforces specific JSON formats for agent decision making.
+- **Reflection/evidence evaluation**: Critically assesses the retrieved evidence against the user query.
+- **Forced synthesis after reflection limit**: Ensures the agent provides a final answer when max reflection attempts are reached.
+- **Provider abstraction**: Seamless fallback between configured LLM providers.
+- **Simple-query fast path**: Bypasses deep research for trivial factual questions.
+- **FastAPI backend**: Fast, asynchronous web framework exposing REST endpoints.
+- **Vanilla JS frontend**: Simple, reliable web user interface.
 
-## Architecture Diagram
-
-```mermaid
-graph TD
-    User([User]) --> Frontend
-    Frontend --> FastAPI
-    FastAPI --> LangGraph
-    LangGraph --> Planning[Planning / Agent Decision]
-    Planning --> Tools
-    Tools --> Calculator
-    Tools --> WebSearch[Web Search]
-    Tools --> LocalKnowledge[Local Knowledge]
-    
-    LocalKnowledge --> LangChainAdapter[LangChain Retriever Adapter]
-    LangChainAdapter --> VectorStoreLayer[Vector Store Layer]
-    VectorStoreLayer --> Chroma
-    VectorStoreLayer --> Pinecone
-    
-    Chroma --> FallbackFusion[Fallback / Fusion]
-    Pinecone --> FallbackFusion
-    FallbackFusion --> RRF[RRF Reranking]
-    
-    RRF --> Evidence
-    WebSearch --> Evidence
-    
-    Evidence --> Reflection
-    Reflection --> ResearchSynthesis[Research Synthesis]
-    ResearchSynthesis --> QualityGrounding[Quality / Grounding]
-    QualityGrounding --> FinalAnswer[Final Answer]
-    FinalAnswer --> Frontend
-```
-
-## Technology Decision Table
-
-| Technology | Purpose | Why |
-|------------|---------|-----|
-| Python | Core application | Standard ecosystem for AI/ML and data manipulation. |
-| LangGraph | Agent orchestration | Provides deterministic cyclic state management without opaque wrappers. |
-| LangChain Core | Standard abstractions | Selected precisely for Document and ChatPromptTemplate standard structures. |
-| Chroma | Local vector DB | Easy in-memory or localized flat-file embeddings storage with zero infrastructure. |
-| Pinecone | Cloud vector DB option | Provides a scalable, robust, and managed remote fallback mechanism. |
-| Gemini | Primary LLM | High-performance, fast model generation selected as the baseline model. |
-| OpenRouter | Provider fallback | Acts as the automated failover endpoint when the primary LLM faces rate limits. |
-| FastAPI | API layer | Fast, asynchronous web framework exposing robust REST endpoints. |
-
-## Project Structure
+## Architecture Overview
+The high-level request flow operates as follows:
 
 ```text
-project/
-├── agent.py
-├── api_server.py
-├── config.py
-├── graph.py
-├── langchain_integration.py
-├── llm.py
-├── main.py
-├── memory.py
-├── planning.py
-├── quality.py
-├── reflection.py
-├── requirements.txt
-├── research.py
-├── state.py
-├── tools.py
-├── api/
-├── docs/
-├── evaluation/
-├── frontend/
-├── providers/
-└── rag/
+User
+   ↓
+FastAPI
+   ↓
+Query planning/classification
+   ↓
+LangGraph
+   ↓
+Agent/tool loop
+   ↓
+Web search / local knowledge
+   ↓
+Reflection
+   ↓
+Force synthesis when reflection limit is reached
+   ↓
+Quality check
+   ↓
+Final answer
+   ↓
+Frontend
 ```
 
-## Design Decisions
+## LLM Provider Configuration
+The application uses environment variables for provider configuration.
 
-- **Why LangGraph instead of a manually managed ReAct loop?** LangGraph natively supports cyclic flows and state persistence, making it drastically simpler to orchestrate looping features like research refinement, reflection, and iterative quality checking over a purely manual loop.
-- **Why LangChain Core instead of rewriting the application around LangChain?** A full LangChain rewrite would heavily couple the agent's logic to rapidly evolving third-party chains. Using `langchain-core` exclusively preserves absolute control over provider routing, planning, and tool abstraction while gaining the benefits of standard `Document` mappings and structured prompt templates.
-- **Why Chroma as the local/default vector backend?** Chroma runs effortlessly in local environments and provides immediate out-of-the-box functionality for developers cloning the repository.
-- **Why Pinecone as a compatible cloud backend?** Pinecone serves as an enterprise-grade cloud vector database to ensure scalability and high availability if the local database becomes corrupt or unresponsive.
-- **Why retrieval fallback?** Systems shouldn't break when a single database is unreachable; fallback dynamically protects end-users from transient infrastructure errors.
-- **Why RRF fusion?** Reciprocal Rank Fusion merges documents retrieved from differing backends without falsely trusting potentially misaligned raw vector distance scores.
-- **Why custom grounding/quality verification?** Hallucinations are a massive risk in LLMs. The custom grounding validation forces the agent to trace every extracted claim strictly back to the source text before returning a final answer.
-- **Why provider fallback?** To dramatically improve reliability in production environments. If Gemini triggers a `429 Quota Exhausted`, OpenRouter instantly overtakes the request.
-- **Why custom state/memory?** It allows fine-grained trace logs and explicitly segregated contextual storage across conversations (FastAPI sessions) without reliance on opaque third-party structures.
+- `LLM_PROVIDER`: Set the active primary provider (e.g., `openrouter` or `gemini`).
+- `LLM_MODEL`: Set the specific model string (e.g., `nvidia/nemotron-3-super-120b-a12b:free`).
+- `OPENROUTER_API_KEY`: Your API key for OpenRouter.
+- `GEMINI_API_KEY`: Your API key for Google Gemini.
 
-## Limitations
+> [!IMPORTANT]
+> The `.env` file is strictly local and must never be committed to source control. Use `.env.example` as a template for required keys.
 
-- **Gemini Quota Limitations:** The Google Gemini free tier implements strict rate limits (e.g., 5-15 requests per minute). Multi-turn complex research queries can exhaust this limit during continuous tests (observed actively during the AI-240 evaluation).
-- **Pinecone Testing:** The remote Pinecone environment has not been exhaustively live-tested via integration suites in environments where API credentials are intentionally withheld.
-- **Frontend Live Testing:** Due to the Gemini API limits observed in the AI-240 smoke test, extensive end-to-end frontend interaction was verified conceptually through API tests, but sustained live user simulation was halted to prevent quota burn.
-- **Session Memory Storage:** Conversation history and agent state sessions are currently strictly in-memory. Restarting the FastAPI service destroys ongoing chat sessions.
+## Installation
+The current supported deployment is native Windows Python execution (Docker is currently deferred).
+
+1. Create a virtual environment:
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+2. Install CPU-only PyTorch (if required by your hardware/setup):
+```powershell
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+```
+
+3. Install dependencies:
+```powershell
+pip install -r requirements.txt
+```
+
+## Running the Application
+Start the FastAPI server:
+```powershell
+.\venv\Scripts\uvicorn.exe api_server:app --host 127.0.0.1 --port 8000
+```
+Access the web interface by navigating to `http://127.0.0.1:8000` in your browser.
+
+## API Endpoints
+- `GET /health`: Returns basic health status.
+- `GET /ready`: Returns readiness status and provider availability.
+- `GET /config`: Returns public application configuration (no secrets).
+- `POST /chat`: Main chat endpoint for research queries (expects JSON payload with `message`).
+
+## Testing
+Run the complete offline test suite:
+```powershell
+.\venv\Scripts\python.exe -m unittest discover
+```
+Currently validated offline test count: **109/109 tests passing**.
+
+## Error Handling
+The application gracefully maps downstream provider exceptions to the client:
+- **429 (Too Many Requests)**: Handled when the AI provider is temporarily rate-limited.
+- **502 (Bad Gateway)**: Handled when the AI provider returns an upstream error.
+- **503 (Service Unavailable)**: Handled when the research service provider is unreachable.
+- **Network failure**: Handled gracefully by the frontend if the backend disconnects.
+
+## Known Limitations
+- **OpenRouter free-model rate limits**: The free tier imposes strict limits that can interrupt multi-step workflows.
+- **Deep research time**: Complex multi-source deep research can take several minutes to complete.
+- **Incomplete evaluation**: A planned six-query research-quality evaluation was INCOMPLETE because free-model daily limits blocked tests 2–6.
+- **Live validation**: We successfully ran at least one successful end-to-end research workflow using OpenRouter models.
+- **Deferred deployment**: Docker containerization is currently deferred.
+- **Source quality constraints**: The final output quality heavily depends on the search providers and the specific web results available at execution time.
+- **Simple-query limitations**: The simple-query fast path intentionally avoids unnecessary research, meaning it will not provide citations for factual trivia.
+
+## Validation Status
+
+**VERIFIED:**
+- 109 offline tests passing
+- FastAPI health/ready/config endpoints
+- OpenRouter provider integration
+- OpenRouter tool calling
+- structured outputs
+- reflection
+- reflection attempt limit
+- force synthesis
+- frontend error handling
+- at least one successful end-to-end research workflow
+
+**NOT FULLY VERIFIED:**
+- complete six-query research evaluation
+- production-scale reliability
+- Docker deployment
+
+## Project Structure
+```text
+project/
+├── api/             # FastAPI routers and HTTP models
+├── docs/            # Architecture, setup, and evaluation documentation
+├── frontend/        # Vanilla HTML/CSS/JS user interface
+├── providers/       # LLM provider abstraction layer (Gemini, OpenRouter)
+├── rag/             # Retrieval-augmented generation and vector tools
+├── graph.py         # LangGraph orchestration state machine
+├── planning.py      # Query classification and research planning
+├── quality.py       # Evidence grounding and citation verification
+├── reflection.py    # Autonomous evidence evaluation
+└── state.py         # Agent execution state definitions
+```
 
 ## Security
-
-- **Environment Variables:** API keys (`GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `PINECONE_API_KEY`) are kept exclusively in local `.env` files. 
-- **Repository Integrity:** Secrets are absolutely prevented from being committed into the GitHub repository via `.gitignore` policies.
-- **Safe Tracing:** The built-in tracing logic limits what is logged; raw provider credentials are never exported to trace outputs, logs, or debugging files.
-- **Safe Rendering:** The frontend application receives structured responses and handles outputs safely without dangerous execution of raw LLM artifacts.
-
-## Project Highlights
-
-- Built a custom **LangGraph orchestration** engine handling ReAct loops, deterministic planning, and iterative refinement.
-- Designed a hybrid RAG pipeline combining local/Chroma and cloud/Pinecone stores using **Reciprocal Rank Fusion (RRF)**.
-- Implemented robust **provider fallback** (Gemini -> OpenRouter) preventing disruptions from unexpected LLM rate limits.
-- Established strict **citation validation and claim grounding**, actively verifying agent outputs against retrieved source evidence.
-- Fully stabilized the application with an extensive offline suite boasting **88/88 passing regression tests**.
-- Exposed the agentic research engine through a modern **FastAPI layer and web UI**.
-
-## Local Python Quick-Start
-
-Currently, Docker deployment is deferred. To run the AI Research Agent natively using Python:
-
-1. Create your `.env` file (see `docs/setup.md` for required keys).
-2. Create a virtual environment:
-   ```bash
-   python -m venv venv
-   .\venv\Scripts\activate
-   ```
-3. Install dependencies:
-   ```bash
-   pip install torch --index-url https://download.pytorch.org/whl/cpu
-   pip install -r requirements.txt
-   ```
-4. Start the backend:
-   ```bash
-   python -m uvicorn api_server:app --host 127.0.0.1 --port 8000
-   ```
-5. Access the web interface at [http://localhost:8000](http://localhost:8000).
-
-Chroma database persistence is automatically handled in the `.chroma_db` directory.
+- The `.env` file is explicitly ignored in `.gitignore`.
+- API keys are never committed to the repository.
+- The `/config` API endpoint does not expose sensitive credentials.
+- Upstream provider errors are intercepted and sanitized before reaching the frontend to prevent leaking internal stack traces or API keys.
