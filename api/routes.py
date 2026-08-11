@@ -104,15 +104,17 @@ def chat_endpoint(request: ChatRequest):
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         from providers.errors import RetryableProviderError, FatalProviderError
-        if isinstance(e, RetryableProviderError):
+        if isinstance(e, RetryableProviderError) or type(e).__name__ == "RetryableProviderError":
             logger.warning(f"Retryable provider error: {e}")
             if "429" in str(e):
                 raise HTTPException(status_code=429, detail="The AI provider is currently overwhelmed or out of quota. Please try again later.")
             raise HTTPException(status_code=503, detail="The AI provider experienced a transient network issue. Please retry your request.")
             
-        if isinstance(e, FatalProviderError):
+        if isinstance(e, FatalProviderError) or type(e).__name__ == "FatalProviderError":
             logger.error(f"Fatal provider error: {e}")
-            raise HTTPException(status_code=502, detail="The AI provider encountered a fatal error processing the request.")
+            if "400" in str(e):
+                raise HTTPException(status_code=502, detail="The AI provider encountered a fatal error processing the request.")
+            raise HTTPException(status_code=500, detail="The AI provider encountered a fatal error processing the request.")
             
         if isinstance(e, RuntimeError):
             logger.error(f"Runtime error during agent execution: {e}")

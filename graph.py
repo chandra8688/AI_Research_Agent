@@ -118,7 +118,7 @@ def agent_decide(state: GraphState):
         response = provider.generate_agent_step(agent_state.contents, FUNCTION_DECLARATIONS)
     except Exception as e:
         from providers.errors import ProviderError
-        if isinstance(e, ProviderError):
+        if isinstance(e, ProviderError) or type(e).__name__ in ["RetryableProviderError", "FatalProviderError", "ProviderError"]:
             agent_state.add_trace("agent_error", {"error": str(e)})
             return {"error": e, "next_action": "end"}
         err_msg = f"Provider API Error: {str(e)}"
@@ -315,7 +315,8 @@ def fast_llm_path(state: GraphState):
     try:
         final_text = provider.generate(prompt)
     except Exception as e:
-        if isinstance(e, ProviderError):
+        from providers.errors import ProviderError
+        if isinstance(e, ProviderError) or type(e).__name__ in ["RetryableProviderError", "FatalProviderError", "ProviderError"]:
             agent_state.add_trace("agent_error", {"error": str(e)})
             return {"error": e, "next_action": "end"}
         final_text = f"Error generating fast response: {str(e)}"
