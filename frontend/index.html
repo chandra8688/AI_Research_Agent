@@ -8,34 +8,48 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="container">
-        <header class="header">
-            <div class="header-top">
-                <h1>AI RESEARCH AGENT</h1>
-                <div class="health-indicator" id="healthIndicator">
-                    <span class="status-dot unknown"></span>
-                    <span class="status-text">Checking status...</span>
-                </div>
+    <div class="app-layout">
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <button id="newChatBtn" class="new-chat-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    New Chat
+                </button>
             </div>
-            <p class="subtitle">Research &bull; Retrieve &bull; Reason &bull; Answer</p>
-        </header>
+            <div id="historyList" class="history-list">
+                <!-- History groups go here -->
+            </div>
+        </aside>
 
-        <main class="main-content">
-            <div id="chatHistory" class="chat-history">
-                <!-- Messages will appear here -->
-            </div>
+        <div class="container main-view">
+            <header class="header">
+                <div class="header-top">
+                    <h1>AI RESEARCH AGENT</h1>
+                    <div class="health-indicator" id="healthIndicator">
+                        <span class="status-dot unknown"></span>
+                        <span class="status-text">Checking status...</span>
+                    </div>
+                </div>
+                <p class="subtitle">Research &bull; Retrieve &bull; Reason &bull; Answer</p>
+            </header>
 
-            <div class="input-container">
-                <label for="messageInput" class="input-label">Ask your research question</label>
-                <div class="input-box">
-                    <textarea id="messageInput" placeholder="What does the documentation say about RAG?" rows="3"></textarea>
+            <main class="main-content">
+                <div id="chatHistory" class="chat-history">
+                    <!-- Messages will appear here -->
                 </div>
-                <div class="button-row">
-                    <div id="errorBanner" class="error-banner hidden"></div>
-                    <button id="askBtn" class="ask-btn">Ask Agent</button>
+
+                <div class="input-container">
+                    <label for="messageInput" class="input-label">Ask your research question</label>
+                    <div class="input-box">
+                        <textarea id="messageInput" placeholder="What does the documentation say about RAG?" rows="3"></textarea>
+                    </div>
+                    <div class="button-row">
+                        <div id="errorBanner" class="error-banner hidden"></div>
+                        <button id="askBtn" class="ask-btn">Ask Agent</button>
+                    </div>
                 </div>
-            </div>
-        </main>
+            </main>
+        </div>
     </div>
     
     <script src="/static/app.js"></script>
