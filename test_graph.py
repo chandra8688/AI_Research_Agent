@@ -198,35 +198,50 @@ class TestGraph(unittest.TestCase):
 
     @patch("graph.TOOL_REGISTRY")
     def test_8_reflection_limit(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
+        """When max_reflection_attempts is reached, force_synthesis must produce a final answer
+        WITHOUT going back to agent_decide. provider.generate() is called, not generate_agent_step."""
         mock_extract.return_value = []
         mock_provider = MagicMock()
         mock_get_provider.return_value = mock_provider
-        
+
+        # Iteration 1: agent makes a search tool call
         call_resp = AgentResponse(
             text=None,
             function_calls=[ToolCall(name="search_local_knowledge", args={"query": "RAG"})],
             model_message={"role": "model"}
         )
-        
-        final_resp = AgentResponse(
-            text="I tried but failed.",
-            function_calls=[],
+        # Iteration 2: agent makes another search tool call
+        call_resp2 = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_local_knowledge", args={"query": "RAG follow-up"})],
             model_message={"role": "model"}
         )
-        
-        # Max reflections=2. So call_resp (iter 1), call_resp (iter 2), final_resp (iter 3)
-        mock_provider.generate_agent_step.side_effect = [call_resp, call_resp, final_resp]
-        mock_registry.get.return_value = MagicMock(return_value="Local result")
-        
+
+        # generate_agent_step used only for tool-calling iterations
+        mock_provider.generate_agent_step.side_effect = [call_resp, call_resp2]
+        # generate() used by force_synthesis for the final answer
+        mock_provider.generate.return_value = "Forced synthesis answer."
+        mock_registry.get.return_value = MagicMock(return_value="[Evidence 1]Source: local (Chunk 0)Distance: 0.1\nText: Local result")
+
         fail_eval = MagicMock()
         fail_eval.sufficient = False
-        fail_eval.reason = "Need more."
-        
+        fail_eval.reason = "Still insufficient."
+        # All reflection calls return insufficient — limit (=2) will be hit on the second call
         mock_eval.return_value = fail_eval
-        
-        ans, state = execute_agent_graph("What is RAG?", max_iterations=6)
+
+        # max_reflection_attempts=2 (default), so:
+        # reflection attempt 1 → insufficient, attempts remain → agent_decide → another search
+        # reflection attempt 2 → insufficient, limit reached → force_synthesis → quality_check
+        ans, state = execute_agent_graph("What is RAG?", max_iterations=10)
+
         self.assertEqual(state.reflection_attempts, 2)
-        self.assertEqual(ans, "I tried but failed.")
+        # force_synthesis produces the answer via provider.generate(), not generate_agent_step
+        mock_provider.generate.assert_called_once()
+        self.assertIn("Forced synthesis answer.", ans)
+        # Verify force_synthesis trace event was emitted
+        trace_types = [t.event_type for t in state.trace]
+        self.assertIn("force_synthesis", trace_types)
+        self.assertIn("reflection_limit_reached", trace_types)
 
     def test_9_quality_check(self, mock_eval, mock_extract, mock_get_provider):
         mock_eval.return_value = MagicMock(sufficient=True, reason="")
@@ -312,6 +327,161 @@ class TestGraph(unittest.TestCase):
         self.assertIn("graph_start", types)
         self.assertIn("agent_start", types)
         self.assertIn("graph_end", types)
+
+    # -------------------------------------------------------------------------
+    # New routing tests for reflection attempt limit enforcement
+    # -------------------------------------------------------------------------
+
+    @patch("graph.TOOL_REGISTRY")
+    def test_13_reflection_insufficient_attempts_remain(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
+        """TEST A: insufficient + attempts remain → route back to agent_decide (more research)."""
+        mock_extract.return_value = []
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+
+        # Iteration 1: search, reflection insufficient (attempt 1 of 2 → attempts remain)
+        # Iteration 2: agent decides to produce final answer after re-instruction
+        call_resp = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_local_knowledge", args={"query": "RAG"})],
+            model_message={"role": "model"}
+        )
+        final_resp = AgentResponse(
+            text="Final answer after refinement.",
+            function_calls=[],
+            model_message={"role": "model"}
+        )
+        mock_provider.generate_agent_step.side_effect = [call_resp, final_resp]
+        mock_registry.get.return_value = MagicMock(return_value="[Evidence 1]Source: local (Chunk 0)Distance: 0.1\nText: Local result")
+
+        # Only 1 reflection → attempt 1 < max_reflection_attempts(2) → routes back to agent_decide
+        mock_eval.return_value = MagicMock(sufficient=False, reason="Only one source, need more.")
+
+        ans, state = execute_agent_graph("What is RAG?")
+
+        # Verify: agent_decide was called again (generate_agent_step called twice)
+        self.assertEqual(mock_provider.generate_agent_step.call_count, 2)
+        # Verify: force_synthesis was NOT triggered
+        self.assertNotIn("force_synthesis", [t.event_type for t in state.trace])
+        self.assertEqual(state.reflection_attempts, 1)
+        self.assertEqual(ans, "Final answer after refinement.")
+
+    @patch("graph.TOOL_REGISTRY")
+    def test_14_reflection_limit_enforced(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
+        """TEST B: insufficient + limit reached → force_synthesis, NOT agent_decide."""
+        mock_extract.return_value = []
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+
+        call_resp = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_local_knowledge", args={"query": "RAG"})],
+            model_message={"role": "model"}
+        )
+        call_resp2 = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_local_knowledge", args={"query": "RAG 2"})],
+            model_message={"role": "model"}
+        )
+        mock_provider.generate_agent_step.side_effect = [call_resp, call_resp2]
+        mock_provider.generate.return_value = "Force-synthesized answer."
+        mock_registry.get.return_value = MagicMock(return_value="[Evidence 1]Source: local (Chunk 0)Distance: 0.1\nText: Some local result")
+
+        # Always insufficient → after 2 attempts, limit hit → force_synthesis
+        mock_eval.return_value = MagicMock(sufficient=False, reason="Always insufficient.")
+
+        ans, state = execute_agent_graph("What is RAG?", max_iterations=10)
+
+        # force_synthesis must be in trace
+        self.assertIn("force_synthesis", [t.event_type for t in state.trace])
+        self.assertIn("reflection_limit_reached", [t.event_type for t in state.trace])
+        # generate_agent_step should NOT have been called for synthesis
+        # (only 2 calls for the 2 search iterations)
+        self.assertEqual(mock_provider.generate_agent_step.call_count, 2)
+        # provider.generate() must have been called by force_synthesis
+        mock_provider.generate.assert_called_once()
+        self.assertEqual(state.reflection_attempts, 2)
+        self.assertIn("Force-synthesized answer.", ans)
+
+    @patch("graph.TOOL_REGISTRY")
+    def test_15_reflection_sufficient_normal_path(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
+        """TEST C: sufficient=True before limit → normal agent_decide → quality_check path."""
+        mock_extract.return_value = []
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+
+        call_resp = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_web", args={"query": "batteries"})],
+            model_message={"role": "model"}
+        )
+        final_resp = AgentResponse(
+            text="Here is the answer from sufficient evidence.",
+            function_calls=[],
+            model_message={"role": "model"}
+        )
+        mock_provider.generate_agent_step.side_effect = [call_resp, final_resp]
+        mock_registry.get.return_value = MagicMock(
+            return_value="[Result 1]\nTitle: Battery\nURL: http://example.com\nSnippet: Some battery info"
+        )
+        # First (and only) reflection: sufficient
+        mock_eval.return_value = MagicMock(sufficient=True, reason="Evidence covers the topic.")
+
+        ans, state = execute_agent_graph("What are solid-state batteries?")
+
+        # force_synthesis must NOT be in trace — normal path used
+        self.assertNotIn("force_synthesis", [t.event_type for t in state.trace])
+        self.assertEqual(state.reflection_attempts, 1)
+        self.assertEqual(ans, "Here is the answer from sufficient evidence.")
+        # provider.generate() must NOT have been called — only generate_agent_step
+        mock_provider.generate.assert_not_called()
+
+    @patch("graph.TOOL_REGISTRY")
+    def test_16_force_synthesis_has_accumulated_evidence(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
+        """TEST D: force_synthesis receives all accumulated evidence from all prior searches."""
+        mock_extract.return_value = []
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+
+        # Two search tool calls accumulate evidence
+        call_resp = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_web", args={"query": "toyota battery"})],
+            model_message={"role": "model"}
+        )
+        call_resp2 = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_web", args={"query": "quantumscape battery"})],
+            model_message={"role": "model"}
+        )
+        mock_provider.generate_agent_step.side_effect = [call_resp, call_resp2]
+
+        search_results = [
+            "[Result 1]\nTitle: Toyota SSB\nURL: http://toyota.com\nSnippet: Toyota solid-state data",
+            "[Result 2]\nTitle: QuantumScape\nURL: http://qs.com\nSnippet: QuantumScape solid-state data",
+        ]
+        mock_registry.get.return_value = MagicMock(side_effect=search_results)
+
+        # Both reflections insufficient → limit hit at attempt 2
+        mock_eval.return_value = MagicMock(sufficient=False, reason="Missing data.")
+
+        captured_prompts = []
+        def capture_generate(prompt):
+            captured_prompts.append(prompt)
+            return "Synthesis using all evidence."
+        mock_provider.generate.side_effect = capture_generate
+
+        ans, state = execute_agent_graph("Compare battery companies", max_iterations=10)
+
+        # force_synthesis was triggered
+        self.assertIn("force_synthesis", [t.event_type for t in state.trace])
+        # The synthesis prompt must contain evidence from BOTH searches
+        self.assertEqual(len(captured_prompts), 1)
+        synthesis_prompt = captured_prompts[0]
+        self.assertIn("Toyota SSB", synthesis_prompt)
+        self.assertIn("QuantumScape", synthesis_prompt)
+        # Evidence accumulation: both web items present in state
+        self.assertEqual(len(state.multi_source_evidence), 2)
 
 if __name__ == "__main__":
     unittest.main()

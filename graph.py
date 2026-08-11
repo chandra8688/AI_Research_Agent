@@ -197,38 +197,99 @@ def reflection(state: GraphState):
     agent_state = state["agent_state"]
     prompt = state["prompt"]
     fc_name = agent_state.tool_calls[-1]["name"]
-    
+
     combined_text = format_combined_evidence(agent_state.multi_source_evidence)
     agent_state.add_trace("evidence_synthesis", {"sources": [e.source for e in agent_state.multi_source_evidence]})
-    
+
     agent_state.reflection_attempts += 1
     reflection_obj = evaluate_evidence(prompt, [combined_text])
     agent_state.reflection_result = reflection_obj
     agent_state.add_trace("reflection", {"status": "sufficient" if reflection_obj.sufficient else "insufficient", "feedback": reflection_obj.reason})
-    
+
     if not reflection_obj.sufficient:
-        if agent_state.reflection_attempts < settings.max_reflection_attempts:
-            res_mod = (f"{combined_text}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
-                      f"because: {reflection_obj.reason}. Please refine your search query.")
-        else:
-            res_mod = (f"{combined_text}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
-                      f"because: {reflection_obj.reason}. MAX RETRIEVAL ATTEMPTS REACHED. "
-                      f"Please provide your final answer based only on what you have, or admit you do not know.")
+        # Limit reached: hard-route to force_synthesis — do NOT return to agent_decide.
+        # The model cannot override this; routing is enforced at the graph level.
+        if agent_state.reflection_attempts >= settings.max_reflection_attempts:
+            agent_state.add_trace("reflection_limit_reached", {
+                "reflection_attempts": agent_state.reflection_attempts,
+                "max_reflection_attempts": settings.max_reflection_attempts
+            })
+            return {"agent_state": agent_state, "next_action": "force_synthesis"}
+
+        # Attempts remain: inject INSUFFICIENT signal and allow another research iteration.
+        res_mod = (f"{combined_text}\n\n[SYSTEM EVALUATION]: The retrieved evidence was evaluated as INSUFFICIENT "
+                   f"because: {reflection_obj.reason}. Please refine your search query.")
     else:
-        res_mod = (f"{combined_text}\n\n[SYSTEM EVALUATION]: The retrieved evidence is SUFFICIENT. "
-                  f"Please generate the final answer. "
-                  f"\n\nSYNTHESIS INSTRUCTIONS:\n"
-                  f"- Distinguish between local evidence and web evidence in your answer.\n"
-                  f"- Do not invent unsupported claims.\n"
-                  f"- Distinguish conflicting evidence.\n"
-                  f"- Prefer explicit evidence over assumptions.\n"
-                  f"- Identify the source type supporting important claims.\n"
-                  f"- Add source attribution to the final answer context: [LOCAL: filename] or [WEB: URL/title].")
-                  
+        # Evidence sufficient: inject SUFFICIENT signal and allow agent to generate final answer.
+        res_mod = (
+            f"{combined_text}\n\n[SYSTEM EVALUATION]: The retrieved evidence is SUFFICIENT. "
+            f"Please generate the final answer. "
+            f"\n\nSYNTHESIS INSTRUCTIONS:\n"
+            f"- Distinguish between local evidence and web evidence in your answer.\n"
+            f"- Do not invent unsupported claims.\n"
+            f"- Distinguish conflicting evidence.\n"
+            f"- Prefer explicit evidence over assumptions.\n"
+            f"- Identify the source type supporting important claims.\n"
+            f"- Add source attribution to the final answer context: [LOCAL: filename] or [WEB: URL/title]."
+        )
+
     func_response_part = {"name": fc_name, "response": {"result": res_mod}}
     agent_state.contents.append({"role": "user", "function_responses": [func_response_part]})
-    
+
     return {"agent_state": agent_state, "next_action": "agent_decide"}
+
+
+def force_synthesis(state: GraphState):
+    """Called when max_reflection_attempts is reached and evidence is still deemed insufficient.
+    Bypasses agent_decide entirely — the model is NOT offered tools here.
+    Makes a direct generate() call with all accumulated evidence and a strict synthesis prompt.
+    Routes to quality_check for the standard grounding/citation pipeline.
+    """
+    agent_state = state["agent_state"]
+    prompt = state["prompt"]
+
+    combined_text = format_combined_evidence(agent_state.multi_source_evidence)
+
+    synthesis_prompt = (
+        f"You are a research assistant. Based ONLY on the following evidence, "
+        f"provide a comprehensive answer to the query. "
+        f"If evidence on a particular entity is missing, explicitly state that it could not be found.\n\n"
+        f"QUERY:\n{prompt}\n\n"
+        f"EVIDENCE:\n{combined_text}\n\n"
+        f"SYNTHESIS INSTRUCTIONS:\n"
+        f"- Answer only from the provided evidence. Do not invent unsupported claims.\n"
+        f"- Distinguish demonstrated results from announced targets.\n"
+        f"- Distinguish between local evidence and web evidence in your answer.\n"
+        f"- Add source attribution for important claims: [WEB: URL/title] or [LOCAL: filename].\n"
+        f"- If evidence for a specific entity is absent, acknowledge the gap explicitly.\n\n"
+        f"PROVIDE YOUR FINAL ANSWER NOW:"
+    )
+
+    from providers import get_provider, AgentResponse
+    provider_name = settings.llm_primary_provider or settings.llm_provider
+    provider = get_provider(provider_name)
+
+    try:
+        final_text = provider.generate(synthesis_prompt)
+    except Exception as e:
+        final_text = f"Evidence was gathered but synthesis failed: {str(e)}"
+
+    if not final_text or not final_text.strip():
+        final_text = (
+            "The research agent gathered evidence but the model returned an empty synthesis. "
+            "Please try a more specific question."
+        )
+
+    # Wrap in AgentResponse so quality_check can process it via the standard pipeline.
+    response = AgentResponse(
+        text=final_text,
+        function_calls=[],
+        model_message={"role": "assistant", "content": final_text}
+    )
+
+    agent_state.add_trace("force_synthesis", {"evidence_sources": len(agent_state.multi_source_evidence)})
+
+    return {"agent_state": agent_state, "llm_response": response, "next_action": "quality_check"}
 
 def quality_check(state: GraphState):
     agent_state = state["agent_state"]
@@ -300,6 +361,16 @@ def route_tools(state: GraphState):
 def route_collect(state: GraphState):
     return state.get("next_action")
 
+def route_reflection(state: GraphState):
+    """Routes reflection output: either back to agent_decide for more research,
+    or to force_synthesis when the reflection attempt limit has been reached."""
+    return state.get("next_action", "agent_decide")
+
+def route_force_synthesis(state: GraphState):
+    if state.get("error"):
+        return "end"
+    return state.get("next_action", "quality_check")
+
 def route_quality(state: GraphState):
     if state.get("error"):
         return "end"
@@ -312,6 +383,7 @@ workflow.add_node("agent_decide", agent_decide)
 workflow.add_node("execute_tools", execute_tools)
 workflow.add_node("collect_evidence", collect_evidence)
 workflow.add_node("reflection", reflection)
+workflow.add_node("force_synthesis", force_synthesis)
 workflow.add_node("quality_check", quality_check)
 
 workflow.add_edge(START, "validate")
@@ -346,7 +418,27 @@ workflow.add_conditional_edges(
     }
 )
 
-workflow.add_edge("reflection", "agent_decide")
+# Reflection now uses a conditional edge:
+# - insufficient + attempts remain  → agent_decide (allow more research)
+# - insufficient + limit reached    → force_synthesis (enforced, model cannot override)
+# - sufficient                      → agent_decide (model will synthesize without tools)
+workflow.add_conditional_edges(
+    "reflection",
+    route_reflection,
+    {
+        "agent_decide": "agent_decide",
+        "force_synthesis": "force_synthesis"
+    }
+)
+
+workflow.add_conditional_edges(
+    "force_synthesis",
+    route_force_synthesis,
+    {
+        "quality_check": "quality_check",
+        "end": END
+    }
+)
 
 workflow.add_conditional_edges(
     "quality_check",
