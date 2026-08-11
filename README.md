@@ -134,15 +134,25 @@ project/
 - Fully stabilized the application with an extensive offline suite boasting **88/88 passing regression tests**.
 - Exposed the agentic research engine through a modern **FastAPI layer and web UI**.
 
-## Docker Quick-Start
+## Local Python Quick-Start
 
-To run the AI Research Agent seamlessly without configuring local Python environments:
+Currently, Docker deployment is deferred. To run the AI Research Agent natively using Python:
 
-1. Create your `.env` file (see [docs/setup.md](docs/setup.md) for required keys).
-2. Build and start the container:
+1. Create your `.env` file (see `docs/setup.md` for required keys).
+2. Create a virtual environment:
    ```bash
-   docker compose up -d --build
+   python -m venv venv
+   .\venv\Scripts\activate
    ```
-3. Access the web interface at [http://localhost:8000](http://localhost:8000).
+3. Install dependencies:
+   ```bash
+   pip install torch --index-url https://download.pytorch.org/whl/cpu
+   pip install -r requirements.txt
+   ```
+4. Start the backend:
+   ```bash
+   python -m uvicorn api_server:app --host 127.0.0.1 --port 8000
+   ```
+5. Access the web interface at [http://localhost:8000](http://localhost:8000).
 
-Chroma database persistence is automatically handled via Docker volumes.
+Chroma database persistence is automatically handled in the `.chroma_db` directory.
