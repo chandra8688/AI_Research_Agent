@@ -124,5 +124,69 @@ class TestStructuredLLM(unittest.TestCase):
         self.assertEqual(result.reason, "Looks good")
         mock_call_llm_structured.assert_called_once()
         
+    @patch('providers.openrouter.urllib.request.urlopen')
+    @patch('config.settings')
+    def test_structured_openrouter_schema_rejected(self, mock_settings, mock_urlopen):
+        """Test OpenRouter rejects a JSON Schema definition returned instead of an instance."""
+        mock_settings.openrouter_api_key = "dummy_key"
+        mock_settings.llm_model = "test-model"
+        
+        mock_response = MagicMock()
+        # This matches the Nemotron failure pattern where it returns the schema definition
+        fake_payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": json.dumps({
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "age": {"type": "integer"}
+                            },
+                            "required": ["name", "age"]
+                        })
+                    }
+                }
+            ]
+        }
+        mock_response.read.return_value = json.dumps(fake_payload).encode('utf-8')
+        mock_response.__enter__.return_value = mock_response
+        mock_urlopen.return_value = mock_response
+        
+        provider = OpenRouterProvider()
+        with self.assertRaises(FatalProviderError) as context:
+            provider.generate_structured("Prompt", DummySchema)
+            
+        self.assertIn("JSON Schema definition instead of a populated instance", str(context.exception))
+
+    @patch('providers.openrouter.urllib.request.urlopen')
+    @patch('config.settings')
+    def test_structured_openrouter_prompt_instructions(self, mock_settings, mock_urlopen):
+        """Test the prompt explicitly distinguishes schema definition from schema instance."""
+        mock_settings.openrouter_api_key = "dummy_key"
+        mock_settings.llm_model = "test-or-model"
+        
+        mock_response = MagicMock()
+        fake_payload = {
+            "choices": [{"message": {"content": '{"name": "Test", "age": 1}'}}]
+        }
+        mock_response.read.return_value = json.dumps(fake_payload).encode('utf-8')
+        mock_response.__enter__.return_value = mock_response
+        mock_urlopen.return_value = mock_response
+        
+        provider = OpenRouterProvider()
+        provider.generate_structured("My Test Prompt", DummySchema)
+        
+        req = mock_urlopen.call_args[0][0]
+        sent_data = json.loads(req.data.decode('utf-8'))
+        prompt_sent = sent_data["messages"][0]["content"]
+        
+        self.assertIn("=== STRUCTURED OUTPUT INSTRUCTIONS ===", prompt_sent)
+        self.assertIn("Do NOT return the JSON Schema definition", prompt_sent)
+        self.assertIn("Return ONLY the filled-in JSON instance", prompt_sent)
+        self.assertIn("Respond with the filled JSON instance now:", prompt_sent)
+        self.assertIn('"name": <string value (required)>', prompt_sent)
+        
+
 if __name__ == '__main__':
     unittest.main()

@@ -55,16 +55,46 @@ class OpenRouterProvider:
             raise FatalProviderError(f"Unexpected error during OpenRouter LLM call: {str(e)}")
 
     def generate_structured(self, prompt: str, schema: type[BaseModel]) -> BaseModel:
-        # Ask the model to output JSON adhering to the schema
         import json
-        schema_json = json.dumps(schema.model_json_schema())
-        structured_prompt = prompt + f"\n\nYou MUST respond in valid JSON format matching exactly this schema:\n{schema_json}\nReturn ONLY the JSON. Do not include markdown code blocks or any other text."
-        
+
+        schema_obj = schema.model_json_schema()
+        schema_json = json.dumps(schema_obj, indent=2)
+
+        # Build field-level guidance so the model clearly understands it must
+        # FILL IN values — not reproduce or describe the schema itself.
+        required_fields = schema_obj.get("required", [])
+        properties = schema_obj.get("properties", {})
+        field_lines = []
+        for field_name, field_schema in properties.items():
+            field_type = field_schema.get("type", "any")
+            field_desc = field_schema.get("description", "")
+            req_marker = " (required)" if field_name in required_fields else " (optional)"
+            desc_part = f" — {field_desc}" if field_desc else ""
+            field_lines.append(f'  "{field_name}": <{field_type} value{req_marker}{desc_part}>')
+        fields_guidance = "\n".join(field_lines) if field_lines else "  (see schema below)"
+
+        structured_prompt = (
+            prompt
+            + "\n\n"
+            + "=== STRUCTURED OUTPUT INSTRUCTIONS ===\n"
+            + "You MUST respond with a single JSON OBJECT that contains actual answer values.\n"
+            + "IMPORTANT: Do NOT return the JSON Schema definition.\n"
+            + "Do NOT include keys like \"type\", \"properties\", \"required\", \"$defs\", or \"title\" "
+            + "unless those are actual field names listed below.\n"
+            + "Return ONLY the filled-in JSON instance. No markdown. No explanation outside the JSON.\n\n"
+            + "The output JSON object must contain these fields:\n"
+            + fields_guidance
+            + "\n\n"
+            + "Schema (for reference only — describes the SHAPE; do not return it):\n"
+            + schema_json
+            + "\n\n"
+            + "Respond with the filled JSON instance now:"
+        )
+
         response_text = self.generate(structured_prompt)
-        
-        import json
+
         text = response_text.strip()
-        # Clean up response if the model returned markdown code blocks
+        # Strip Markdown code fences if the model added them
         if text.startswith("```json"):
             text = text[7:]
         if text.startswith("```"):
@@ -72,16 +102,33 @@ class OpenRouterProvider:
         if text.endswith("```"):
             text = text[:-3]
         text = text.strip()
-        
+
         try:
             parsed = json.loads(text)
-            return schema(**parsed)
         except json.JSONDecodeError:
             from .errors import FatalProviderError
             raise FatalProviderError(f"OpenRouter returned invalid JSON: {response_text}")
+
+        # Explicit guard: reject responses that are schema definitions rather than instances.
+        # A schema definition always has "properties" or "$defs" as a top-level key, while
+        # a valid instance of any of our schemas never would (they are simple flat objects).
+        schema_indicator_keys = {"properties", "$defs", "$schema", "definitions"}
+        # Only block if these schema keys appear AND the actual required fields are missing.
+        has_schema_keys = bool(schema_indicator_keys.intersection(parsed.keys()))
+        has_required_fields = all(f in parsed for f in required_fields) if required_fields else True
+        if has_schema_keys and not has_required_fields:
+            from .errors import FatalProviderError
+            raise FatalProviderError(
+                f"OpenRouter returned a JSON Schema definition instead of a populated instance. "
+                f"Expected fields: {required_fields}. Got top-level keys: {list(parsed.keys())}"
+            )
+
+        try:
+            return schema(**parsed)
         except Exception as e:
             from .errors import FatalProviderError
             raise FatalProviderError(f"OpenRouter JSON does not match schema: {str(e)}")
+
 
     def generate_agent_step(self, messages: list[dict], tools: list[dict]) -> "AgentResponse":
         from . import AgentResponse, ToolCall
