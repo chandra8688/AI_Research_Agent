@@ -30,6 +30,12 @@ class TestConfigAndAPI(unittest.TestCase):
         custom_settings = Settings()
         self.assertEqual(custom_settings.llm_provider, "openrouter")
         
+    @patch.dict(os.environ, {"LLM_MODEL": "custom-model-123"})
+    def test_llm_model_override(self):
+        from config import Settings
+        custom_settings = Settings()
+        self.assertEqual(custom_settings.llm_model, "custom-model-123")
+        
     def test_chroma_readiness_no_pinecone(self):
         # Even without pinecone API key, readiness should be ok if vector_db is chroma
         with patch('api.routes.settings.vector_db', 'chroma'):

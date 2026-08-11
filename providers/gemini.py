@@ -10,12 +10,13 @@ class GeminiProvider:
         self.api_key = settings.gemini_api_key
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable is missing or empty.")
+        self.model = "gemini-3.5-flash"
 
     def generate(self, prompt: str) -> str:
         try:
             client = genai.Client(api_key=self.api_key)
             response = client.models.generate_content(
-                model='gemini-3.5-flash',
+                model=self.model,
                 contents=prompt,
             )
             return response.text
@@ -38,7 +39,7 @@ class GeminiProvider:
         try:
             client = genai.Client(api_key=self.api_key)
             response = client.models.generate_content(
-                model='gemini-3.5-flash',
+                model=self.model,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
@@ -95,7 +96,7 @@ class GeminiProvider:
         try:
             client = genai.Client(api_key=self.api_key)
             response = client.models.generate_content(
-                model='gemini-3.5-flash',
+                model=self.model,
                 contents=contents,
                 config=config,
             )

@@ -10,13 +10,14 @@ class OpenRouterProvider:
         self.api_key = settings.openrouter_api_key
         if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is missing or empty.")
+        self.model = settings.llm_model
 
     def generate(self, prompt: str) -> str:
         url = "https://openrouter.ai/api/v1/chat/completions"
         
         # Using a reliable free model on OpenRouter
         payload = {
-            "model": "google/gemma-2-9b-it:free",
+            "model": self.model,
             "messages": [
                 {"role": "user", "content": prompt}
             ]
@@ -122,7 +123,7 @@ class OpenRouterProvider:
                         last_tool_call_id = raw["tool_calls"][0]["id"]
                         
         payload = {
-            "model": "google/gemma-2-9b-it:free",
+            "model": self.model,
             "messages": or_messages,
             "tools": openrouter_tools
         }

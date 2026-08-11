@@ -58,6 +58,7 @@ class TestStructuredLLM(unittest.TestCase):
     def test_structured_openrouter_path(self, mock_settings, mock_urlopen):
         """Test OpenRouter successfully parses standard JSON."""
         mock_settings.openrouter_api_key = "dummy_key"
+        mock_settings.llm_model = "test-or-model"
         
         # Fake successful JSON response
         mock_response = MagicMock()
@@ -79,12 +80,18 @@ class TestStructuredLLM(unittest.TestCase):
         
         self.assertEqual(result.name, "OpenRouterTest")
         self.assertEqual(result.age, 2)
+        
+        # Verify model was passed
+        req = mock_urlopen.call_args[0][0]
+        sent_data = json.loads(req.data.decode('utf-8'))
+        self.assertEqual(sent_data["model"], "test-or-model")
 
     @patch('providers.openrouter.urllib.request.urlopen')
     @patch('config.settings')
     def test_structured_openrouter_malformed(self, mock_settings, mock_urlopen):
         """Test OpenRouter raises FatalProviderError on malformed JSON."""
         mock_settings.openrouter_api_key = "dummy_key"
+        mock_settings.llm_model = "test-model"
         
         mock_response = MagicMock()
         fake_payload = {

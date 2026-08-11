@@ -37,6 +37,7 @@ class TestAgentProviders(unittest.TestCase):
     @patch('config.settings')
     def test_openrouter_tool_calling(self, mock_settings, mock_urlopen):
         mock_settings.openrouter_api_key = "dummy_key"
+        mock_settings.llm_model = "test-agent-or-model"
         
         mock_response = MagicMock()
         fake_payload = {
@@ -68,11 +69,17 @@ class TestAgentProviders(unittest.TestCase):
         self.assertEqual(result.function_calls[0].name, "search_web")
         self.assertEqual(result.function_calls[0].args, {"query": "AI"})
         self.assertIsNone(result.text)
+        
+        # Verify model was passed
+        req = mock_urlopen.call_args[0][0]
+        sent_data = json.loads(req.data.decode('utf-8'))
+        self.assertEqual(sent_data["model"], "test-agent-or-model")
 
     @patch('providers.openrouter.urllib.request.urlopen')
     @patch('config.settings')
     def test_openrouter_malformed_response(self, mock_settings, mock_urlopen):
         mock_settings.openrouter_api_key = "dummy_key"
+        mock_settings.llm_model = "test-model"
         
         mock_response = MagicMock()
         # Invalid JSON returned by HTTP
