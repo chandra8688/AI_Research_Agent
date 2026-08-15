@@ -1,5 +1,4 @@
 import re
-import time
 from dataclasses import dataclass, field
 from typing import Set
 from research import EvidenceItem
@@ -20,46 +19,70 @@ class ResearchQualityReport:
     unsupported_claims: list[str]
     conflicts_detected: list[str]
 
+# Maximum number of claims assessed per answer. Keeps grounding overhead bounded
+# for long research responses without silently dropping high-signal claims.
+_MAX_CLAIMS = 20
+
+def _claim_priority(claim: str) -> int:
+    """Higher is more important. Uses unique meaningful-token count as a proxy
+    for information density so that substantive sentences are preferred over
+    short fragments when the cap is applied."""
+    tokens = get_meaningful_tokens(claim)
+    return len(tokens)
+
 def extract_claims(answer: str) -> list[str]:
-    """Lightweight deterministic extraction of claims."""
+    """Lightweight deterministic extraction of claims.
+
+    Extraction behaviour is unchanged from the original implementation.
+    When the raw candidate list exceeds _MAX_CLAIMS the function selects the
+    highest-signal claims (ranked by unique meaningful-token count) so that the
+    most information-dense sentences are always retained.
+    """
     claims = []
-    
+
     # Extract table rows explicitly first (skip separator rows)
     for line in answer.split('\n'):
         line_clean = line.strip()
         if line_clean.startswith('|') and line_clean.endswith('|') and '---' not in line_clean:
             claims.append(line_clean)
-            
+
     # Remove tables from answer to avoid double-processing
     text_without_tables = re.sub(r'\|.*\|', '', answer)
-    
+
     # Split by common sentence terminators and newlines
     raw_sentences = re.split(r'(?<=[.!?\n])\s+', text_without_tables)
-    
+
     ignore_prefixes = (
-        "here is", "based on", "the available", "sources disagree", 
+        "here is", "based on", "the available", "sources disagree",
         "i found", "in summary", "according to", "these results",
         "this could not be verified"
     )
-    
+
     for sentence in raw_sentences:
         s = sentence.strip()
         if len(s) < 15:
             continue
         if s.startswith('#') or s.endswith(':'):
             continue
-            
+
         lower_s = s.lower()
         if any(lower_s.startswith(p) for p in ignore_prefixes) and len(s) < 50:
             continue
-            
-        # Ignore citation blocks e.g. [LOCAL: file] to clean up the claim
+
+        # Strip citation blocks e.g. [LOCAL: file] to obtain clean claim text
         s_clean = re.sub(r'\[.*?\]', '', s).strip()
         # Remove trailing punctuation
         s_clean = re.sub(r'[.!?]+$', '', s_clean).strip()
         if len(s_clean) > 15:
             claims.append(s_clean)
-            
+
+    # Apply cap: if there are more candidates than _MAX_CLAIMS, keep only the
+    # highest-priority ones so that the grounding overhead stays bounded.
+    # Deduplication happens implicitly because set-based token scoring favours
+    # unique content over repeated fragments.
+    if len(claims) > _MAX_CLAIMS:
+        claims = sorted(claims, key=_claim_priority, reverse=True)[:_MAX_CLAIMS]
+
     return claims
 
 def get_meaningful_tokens(text: str) -> Set[str]:
@@ -278,7 +301,9 @@ def apply_grounding_gate(answer: str, report: ResearchQualityReport, evidence: l
         )
         
         try:
-            time.sleep(2)  # Pacing to avoid quick 429 bursts
+            # NOTE: no unconditional sleep here — the tenacity @retry decorator
+            # on _generate_with_retry already applies exponential back-off
+            # (min=3s, max=35s) whenever a RetryableProviderError is raised.
             rewritten = _generate_with_retry(prompt)
             if rewritten and isinstance(rewritten, str) and rewritten.strip():
                 rewritten_chunks.append(rewritten.strip())

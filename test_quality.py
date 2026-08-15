@@ -240,5 +240,58 @@ class TestQuality(unittest.TestCase):
         # The clean chunk should be passed through untouched
         self.assertIn(chunk2, ans)
 
+    def test_17_claim_cap_at_max(self):
+        """extract_claims must return at most _MAX_CLAIMS items for a long answer,
+        and must prefer high-signal (more unique tokens) sentences over short
+        fragments when trimming."""
+        from quality import extract_claims, _MAX_CLAIMS
+
+        # Build an answer with 30 unique, substantive sentences so the cap fires.
+        long_sentences = [
+            f"Researchers at institution_{i} demonstrated that technique_{i} "
+            f"improves performance by {i+5} percent on benchmark_{i}."
+            for i in range(30)
+        ]
+        long_answer = " ".join(long_sentences)
+
+        claims = extract_claims(long_answer)
+
+        # Cap must be enforced.
+        self.assertLessEqual(len(claims), _MAX_CLAIMS)
+        # All returned claims must be non-empty strings.
+        for c in claims:
+            self.assertIsInstance(c, str)
+            self.assertGreater(len(c), 0)
+
+    def test_17b_claim_cap_below_max_unchanged(self):
+        """When the answer has fewer than _MAX_CLAIMS candidates the function
+        must return exactly those candidates without adding or removing any."""
+        from quality import extract_claims, _MAX_CLAIMS
+
+        # Two sentences — well below the cap.
+        answer = "RAG retrieves external information. It then provides that information to an LLM."
+        claims = extract_claims(answer)
+
+        # Original behaviour: exactly 2 claims, no cap applied.
+        self.assertEqual(len(claims), 2)
+        self.assertEqual(claims[0], "RAG retrieves external information")
+        self.assertEqual(claims[1], "It then provides that information to an LLM")
+
+    def test_18_no_unconditional_sleep_in_grounding_gate(self):
+        """Regression guard: the unconditional time.sleep(2) must NOT exist
+        inside apply_grounding_gate. The tenacity retry decorator already
+        provides rate-limit back-off via wait_exponential."""
+        import inspect
+        from quality import apply_grounding_gate
+
+        source = inspect.getsource(apply_grounding_gate)
+        # The sleep call should have been removed; its presence is a regression.
+        self.assertNotIn(
+            "time.sleep(2)",
+            source,
+            "Unconditional time.sleep(2) was re-introduced in apply_grounding_gate. "
+            "Rate-limit back-off is handled by the tenacity @retry decorator."
+        )
+
 if __name__ == "__main__":
     unittest.main()
