@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from api.routes import router
-from rag.pipeline import initialize_knowledge_base
 
 from config import settings
 import logging
@@ -49,10 +48,6 @@ def startup_event():
     # Initialize the local RAG knowledge base safely
     logger.info(f"Starting {settings.app_name} in {settings.environment} mode.")
     logger.info(f"LLM Provider: {settings.llm_provider} | Vector DB: {settings.vector_db}")
-    try:
-        initialize_knowledge_base()
-    except Exception as e:
-        logger.warning(f"Failed to initialize local knowledge base during startup: {e}")
 
 if __name__ == "__main__":
     import uvicorn

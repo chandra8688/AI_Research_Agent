@@ -1,4 +1,12 @@
+import os
 import numpy as np
+
+# Safely default HF_HOME to a local directory so the downloaded model
+# cache is stored inside the project folder, ensuring it is preserved
+# in the deployment slug (for both build phase and runtime).
+if "HF_HOME" not in os.environ:
+    os.environ["HF_HOME"] = os.path.join(os.getcwd(), ".hf_cache")
+
 from sentence_transformers import SentenceTransformer
 from rag.loader import Document
 

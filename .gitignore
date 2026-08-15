@@ -10,3 +10,4 @@ __pycache__/
 *.py[cod]
 *$py.class
 .chroma_db/
+.hf_cache/

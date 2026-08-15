@@ -10,7 +10,6 @@ from api_server import app
 import api.routes
 from config import settings
 
-patch('api_server.initialize_knowledge_base').start()
 
 class TestConfigAndAPI(unittest.TestCase):
     def setUp(self):
