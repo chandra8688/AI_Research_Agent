@@ -264,8 +264,7 @@ def force_synthesis(state: GraphState):
 
     synthesis_prompt = (
         f"You are a research assistant. Based ONLY on the following evidence, "
-        f"provide a comprehensive answer to the query. "
-        f"If evidence on a particular entity is missing, explicitly state that it could not be found.\n\n"
+        f"provide a comprehensive answer to the query.\n\n"
         f"QUERY:\n{prompt}\n\n"
         f"EVIDENCE:\n{combined_text}\n\n"
         f"SYNTHESIS INSTRUCTIONS:\n"
@@ -275,8 +274,7 @@ def force_synthesis(state: GraphState):
         f"- Use ONLY exact retrieved source identifiers for citations.\n"
         f"- Web citation format: [WEB: title (URL)]\n"
         f"- Local citation format: [LOCAL: filename]\n"
-        f"- Never invent or modify source identifiers.\n"
-        f"- If evidence for a specific entity is absent, acknowledge the gap explicitly.\n\n"
+        f"- Never invent or modify source identifiers.\n\n"
         f"PROVIDE YOUR FINAL ANSWER NOW:"
     )
 

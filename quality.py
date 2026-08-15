@@ -293,7 +293,7 @@ def apply_grounding_gate(answer: str, report: ResearchQualityReport, evidence: l
             "Your task is to rewrite the provided 'Draft Answer Section' to fix grounding errors based on the provided 'Quality Report'.\n\n"
             "RULES:\n"
             "1. Remove or heavily qualify any unsupported claims.\n"
-            "2. For negative claims (e.g., 'X did not do Y') that are unsupported, DO NOT state them as facts. Rewrite them to state that the retrieved evidence did not establish or mention this (e.g., 'The retrieved evidence did not establish X\\'s activity regarding Y.'). Absence of evidence is not evidence of absence.\n"
+            "2. For negative claims (e.g., 'X did not do Y') that are unsupported, DO NOT state them as facts. Gracefully omit them rather than repeatedly stating that evidence is missing.\n"
             "3. For conflicting claims, explicitly flag the conflict (e.g., 'Sources disagree on X...'). Do not state a disputed claim as an established fact.\n"
             "4. If a markdown table contains unsupported rows or cells, remove or revise them.\n"
             "5. Preserve citations (e.g., [WEB: url] or [LOCAL: file]) for supported claims.\n"
