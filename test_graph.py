@@ -220,7 +220,7 @@ class TestGraph(unittest.TestCase):
         # generate_agent_step used only for tool-calling iterations
         mock_provider.generate_agent_step.side_effect = [call_resp, call_resp2]
         # generate() used by force_synthesis for the final answer
-        mock_provider.generate.return_value = "Forced synthesis answer."
+        mock_provider.generate.return_value = "Forced synthesis answer. [LOCAL: local]"
         mock_registry.get.return_value = MagicMock(return_value="[Evidence 1]Source: local (Chunk 0)Distance: 0.1\nText: Local result")
 
         fail_eval = MagicMock()
@@ -347,7 +347,7 @@ class TestGraph(unittest.TestCase):
             model_message={"role": "model"}
         )
         final_resp = AgentResponse(
-            text="Final answer after refinement.",
+            text="Final answer after refinement. [LOCAL: local]",
             function_calls=[],
             model_message={"role": "model"}
         )
@@ -364,7 +364,7 @@ class TestGraph(unittest.TestCase):
         # Verify: force_synthesis was NOT triggered
         self.assertNotIn("force_synthesis", [t.event_type for t in state.trace])
         self.assertEqual(state.reflection_attempts, 1)
-        self.assertEqual(ans, "Final answer after refinement.")
+        self.assertEqual(ans, "Final answer after refinement. [LOCAL: local]")
 
     @patch("graph.TOOL_REGISTRY")
     def test_14_reflection_limit_enforced(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
@@ -384,7 +384,7 @@ class TestGraph(unittest.TestCase):
             model_message={"role": "model"}
         )
         mock_provider.generate_agent_step.side_effect = [call_resp, call_resp2]
-        mock_provider.generate.return_value = "Force-synthesized answer."
+        mock_provider.generate.return_value = "Force-synthesized answer. [LOCAL: local]"
         mock_registry.get.return_value = MagicMock(return_value="[Evidence 1]Source: local (Chunk 0)Distance: 0.1\nText: Some local result")
 
         # Always insufficient → after 2 attempts, limit hit → force_synthesis
@@ -416,7 +416,7 @@ class TestGraph(unittest.TestCase):
             model_message={"role": "model"}
         )
         final_resp = AgentResponse(
-            text="Here is the answer from sufficient evidence.",
+            text="Here is the answer from sufficient evidence. [WEB: Battery (http://example.com)]",
             function_calls=[],
             model_message={"role": "model"}
         )
@@ -432,7 +432,7 @@ class TestGraph(unittest.TestCase):
         # force_synthesis must NOT be in trace — normal path used
         self.assertNotIn("force_synthesis", [t.event_type for t in state.trace])
         self.assertEqual(state.reflection_attempts, 1)
-        self.assertEqual(ans, "Here is the answer from sufficient evidence.")
+        self.assertEqual(ans, "Here is the answer from sufficient evidence. [WEB: Battery (http://example.com)]")
         # provider.generate() must NOT have been called — only generate_agent_step
         mock_provider.generate.assert_not_called()
 
@@ -468,7 +468,7 @@ class TestGraph(unittest.TestCase):
         captured_prompts = []
         def capture_generate(prompt):
             captured_prompts.append(prompt)
-            return "Synthesis using all evidence."
+            return "Synthesis using all evidence. [WEB: Toyota SSB (http://toyota.com)]"
         mock_provider.generate.side_effect = capture_generate
 
         ans, state = execute_agent_graph("Compare battery companies", max_iterations=10)

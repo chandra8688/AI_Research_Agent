@@ -1,4 +1,5 @@
 import os
+import re
 from typing import TypedDict, Any
 from langgraph.graph import StateGraph, START, END
 from config import settings
@@ -270,8 +271,11 @@ def force_synthesis(state: GraphState):
         f"SYNTHESIS INSTRUCTIONS:\n"
         f"- Answer only from the provided evidence. Do not invent unsupported claims.\n"
         f"- Distinguish demonstrated results from announced targets.\n"
-        f"- Distinguish between local evidence and web evidence in your answer.\n"
-        f"- Add source attribution for important claims: [WEB: URL/title] or [LOCAL: filename].\n"
+        f"- Every factual claim based on retrieved evidence should include a citation.\n"
+        f"- Use ONLY exact retrieved source identifiers for citations.\n"
+        f"- Web citation format: [WEB: title (URL)]\n"
+        f"- Local citation format: [LOCAL: filename]\n"
+        f"- Never invent or modify source identifiers.\n"
         f"- If evidence for a specific entity is absent, acknowledge the gap explicitly.\n\n"
         f"PROVIDE YOUR FINAL ANSWER NOW:"
     )
@@ -373,7 +377,12 @@ def quality_check(state: GraphState):
     })
     
     invalid_citations = validate_citations(final_text, agent_state.multi_source_evidence)
-    agent_state.add_trace("citation_validation", {"invalid_citations": invalid_citations})
+    citations_found = len(re.findall(r'\[(?:LOCAL|WEB):\s*(.*?)\]', final_text))
+    agent_state.add_trace("citation_validation", {
+        "evidence_items": len(agent_state.multi_source_evidence),
+        "citations_found": citations_found,
+        "invalid_citations": invalid_citations
+    })
     
     refinement_attempted = getattr(agent_state, "refinement_attempted", False)
     if not refinement_attempted and (quality_report.unsupported_claims or invalid_citations):
@@ -400,7 +409,7 @@ def quality_check(state: GraphState):
         with open("debug_answers.txt", "w", encoding="utf-8") as f:
             f.write("=== PRE-GATE ANSWER ===\n" + final_text + "\n=====================\n")
             
-        final_text = apply_grounding_gate(final_text, quality_report)
+        final_text = apply_grounding_gate(final_text, quality_report, agent_state.multi_source_evidence)
         
         with open("debug_answers.txt", "a", encoding="utf-8") as f:
             f.write("=== POST-GATE ANSWER ===\n" + final_text + "\n=====================\n")

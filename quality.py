@@ -174,6 +174,10 @@ def validate_citations(answer: str, evidence: list[EvidenceItem]) -> list[str]:
     valid_sources = {item.source for item in evidence}
     invalid = []
     
+    if evidence and not citations:
+        invalid.append("No source citations were provided.")
+        return invalid
+
     for cit in citations:
         cit_clean = cit.strip()
         if not any(cit_clean in v or v in cit_clean for v in valid_sources):
@@ -210,7 +214,7 @@ def _is_claim_relevant(claim: str, chunk: str) -> bool:
     overlap = len(c_tokens.intersection(ch_tokens)) / len(c_tokens)
     return overlap >= 0.3
 
-def apply_grounding_gate(answer: str, report: ResearchQualityReport) -> str:
+def apply_grounding_gate(answer: str, report: ResearchQualityReport, evidence: list[EvidenceItem] = None) -> str:
     from config import settings
     if report.overall_grounding_score >= settings.grounding_threshold and not report.unsupported_claims and not report.conflicts_detected:
         return answer
@@ -250,6 +254,10 @@ def apply_grounding_gate(answer: str, report: ResearchQualityReport) -> str:
             
         conflict_str = "\n".join(f"- {c}" for c in chunk_conflicts)
         
+        catalog_str = "None"
+        if evidence:
+            catalog_str = "\n".join(f"- [{item.source_type.upper()}: {item.source}]" for item in evidence)
+
         prompt = (
             "You are a strict grounding and fact-checking editor. "
             "Your task is to rewrite the provided 'Draft Answer Section' to fix grounding errors based on the provided 'Quality Report'.\n\n"
@@ -261,6 +269,7 @@ def apply_grounding_gate(answer: str, report: ResearchQualityReport) -> str:
             "5. Preserve citations (e.g., [WEB: url] or [LOCAL: file]) for supported claims.\n"
             "6. Preserve original markdown headings, formatting, and structure as much as possible.\n"
             "7. Output ONLY the rewritten section, do not add introductory text like 'Here is the rewritten section'.\n\n"
+            f"AVAILABLE SOURCE CATALOG:\n{catalog_str}\n\n"
             f"QUALITY REPORT:\n"
             f"Unsupported Claims:\n{unsupported_str or 'None'}\n\n"
             f"Conflicts Detected:\n{conflict_str or 'None'}\n\n"
