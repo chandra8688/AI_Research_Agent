@@ -209,23 +209,30 @@ def validate_citations(answer: str, evidence: list[EvidenceItem]) -> list[str]:
     return invalid
 
 def _chunk_text(text: str, max_length: int = 1500) -> list[str]:
-    paragraphs = text.split('\n\n')
+    """Split text into chunks strictly under max_length, gracefully handling newlines."""
     chunks = []
-    current_chunk = []
-    current_length = 0
-    
-    for p in paragraphs:
-        if current_length + len(p) > max_length and current_chunk:
-            chunks.append("\n\n".join(current_chunk))
-            current_chunk = [p]
-            current_length = len(p)
+
+    def _add_to_chunks(piece: str, delimiter: str = "\n\n"):
+        if not piece:
+            return
+        if not chunks:
+            chunks.append(piece)
+        elif len(chunks[-1]) + len(piece) + len(delimiter) <= max_length:
+            chunks[-1] += delimiter + piece
         else:
-            current_chunk.append(p)
-            current_length += len(p) + 2
-            
-    if current_chunk:
-        chunks.append("\n\n".join(current_chunk))
-        
+            chunks.append(piece)
+
+    for paragraph in text.split("\n\n"):
+        if len(paragraph) <= max_length:
+            _add_to_chunks(paragraph, "\n\n")
+        else:
+            for line in paragraph.split("\n"):
+                if len(line) <= max_length:
+                    _add_to_chunks(line, "\n")
+                else:
+                    for i in range(0, len(line), max_length):
+                        _add_to_chunks(line[i:i + max_length], "")
+
     return chunks
 
 def _is_claim_relevant(claim: str, chunk: str) -> bool:

@@ -163,15 +163,20 @@ class TestQuality(unittest.TestCase):
     def test_13_chunking_logic(self):
         from quality import _chunk_text
         text = "P1\n\nP2\n\nP3"
+        # Strict enforcement of max_length=5 prevents P2\n\nP3 (len 6)
         chunks = _chunk_text(text, max_length=5)
-        self.assertEqual(len(chunks), 2)
+        self.assertEqual(len(chunks), 3)
         self.assertEqual(chunks[0], "P1")
-        self.assertEqual(chunks[1], "P2\n\nP3")
+        self.assertEqual(chunks[1], "P2")
+        self.assertEqual(chunks[2], "P3")
         
         # Test large paragraphs
         text_large = "A" * 2000 + "\n\n" + "B" * 2000
         chunks_large = _chunk_text(text_large, max_length=1500)
-        self.assertEqual(len(chunks_large), 2)
+        # 2000 chars will be split into 1500 and 500. So 4 chunks total.
+        self.assertEqual(len(chunks_large), 4)
+        for c in chunks_large:
+            self.assertLessEqual(len(c), 1500)
 
     def test_14_claim_relevance(self):
         from quality import _is_claim_relevant
@@ -187,9 +192,10 @@ class TestQuality(unittest.TestCase):
         mock_provider = MagicMock()
         mock_get_provider.return_value = mock_provider
         
-        # Simulating a large answer that gets chunked
-        chunk1 = "Chunk 1 is about Toyota's targets.\n\n" * 20 # 680 chars
-        chunk2 = "Chunk 2 is about Samsung SDI's results.\n\n" * 20 # 800 chars
+        # Simulating a large answer that gets chunked. Keep lengths strictly
+        # under 1500 so they don't trigger hard-splitting, to ensure exactly 2 chunks.
+        chunk1 = "Chunk 1 is about Toyota's targets.\n\n" * 25 # ~950 chars
+        chunk2 = "Chunk 2 is about Samsung SDI's results.\n\n" * 24 # ~980 chars
         answer = chunk1 + "\n\n" + chunk2
         
         # Mock LLM to return rewritten text for each chunk
@@ -218,9 +224,9 @@ class TestQuality(unittest.TestCase):
         mock_provider = MagicMock()
         mock_get_provider.return_value = mock_provider
         
-        # Answer with two paragraphs
-        chunk1 = "This paragraph has an unsupported claim about BYD." * 40
-        chunk2 = "This paragraph is perfectly fine and supported." * 40
+        # Answer with two paragraphs. Keep lengths under 1500 to avoid hard-splitting.
+        chunk1 = "This paragraph has an unsupported claim about BYD." * 20 # ~1000 chars
+        chunk2 = "This paragraph is perfectly fine and supported." * 20 # ~940 chars
         answer = chunk1 + "\n\n" + chunk2
         
         mock_provider.generate.return_value = "Rewritten BYD paragraph."
@@ -292,6 +298,42 @@ class TestQuality(unittest.TestCase):
             "Unconditional time.sleep(2) was re-introduced in apply_grounding_gate. "
             "Rate-limit back-off is handled by the tenacity @retry decorator."
         )
+
+    def test_19_chunk_text_robustness(self):
+        """Regression guard: _chunk_text must strictly enforce max_length
+        even if the text uses single newlines or no newlines at all."""
+        from quality import _chunk_text
+
+        # 1. Normal text containing multiple paragraphs separated by \n\n.
+        normal_text = "Para 1\n\nPara 2\n\nPara 3"
+        chunks1 = _chunk_text(normal_text, max_length=15)
+        for c in chunks1:
+            self.assertLessEqual(len(c), 15)
+
+        # 2. A long section formatted using only single newlines.
+        long_lines = "\n".join(["This is a long line."] * 100) # 2000+ chars
+        chunks2 = _chunk_text(long_lines, max_length=150)
+        for c in chunks2:
+            self.assertLessEqual(len(c), 150)
+
+        # 3. A single line longer than 1500 characters.
+        huge_line = "A" * 2000
+        chunks3 = _chunk_text(huge_line, max_length=1500)
+        self.assertEqual(len(chunks3), 2)
+        for c in chunks3:
+            self.assertLessEqual(len(c), 1500)
+
+        # 4. A mixed paragraph/list containing all of the above.
+        mixed = "Short\n\n" + ("Long line\n" * 50) + "\n\n" + ("B" * 2000)
+        chunks4 = _chunk_text(mixed, max_length=500)
+        for c in chunks4:
+            self.assertLessEqual(len(c), 500)
+
+        # 6. Preserve existing behavior for short input (<1500 characters).
+        short_text = "Just a short sentence."
+        chunks5 = _chunk_text(short_text, max_length=1500)
+        self.assertEqual(len(chunks5), 1)
+        self.assertEqual(chunks5[0], short_text)
 
 if __name__ == "__main__":
     unittest.main()
