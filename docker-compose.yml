@@ -6,8 +6,6 @@ services:
     container_name: ai-research-agent
     ports:
       - "8000:8000"
-    volumes:
-      - chroma_data:/app/.chroma_db
     environment:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
@@ -20,6 +18,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-
-volumes:
-  chroma_data:

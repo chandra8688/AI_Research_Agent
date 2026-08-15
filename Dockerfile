@@ -16,6 +16,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application source
 COPY . .
 
+# Prepare the RAG knowledge base during the build phase
+ENV HF_HOME=/app/.hf_cache
+RUN python scripts/build_rag.py
+
 # Expose FastAPI port
 EXPOSE 8000
 
