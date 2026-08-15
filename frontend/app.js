@@ -375,6 +375,36 @@ document.addEventListener('DOMContentLoaded', () => {
                 errorBanner.textContent = errorData.detail || 'Invalid request.';
                 errorBanner.className = 'error-banner';
                 loadingBox.msgDiv.remove();
+            } else if (res.status === 404 && payload.session_id) {
+                // The backend returned 404 because the session_id is no longer
+                // valid (e.g. server restarted and its in-memory session store was
+                // wiped). Clear the stale session locally and retry ONCE without
+                // a session_id so the backend creates a fresh session.
+                currentSessionId = null;
+                const staleConv = conversations.find(c => c.id === currentConversationId);
+                if (staleConv) { staleConv.sessionId = null; saveConversations(); }
+
+                const retryPayload = { message: text }; // no session_id — fresh session
+                const retryRes = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(retryPayload)
+                });
+
+                if (retryRes.ok) {
+                    const data = await retryRes.json();
+                    if (data.session_id) {
+                        currentSessionId = data.session_id;
+                        ensureConversationExists(text); // persist new session_id
+                    }
+                    renderAgentResponseToDOM(data, loadingBox.bubble);
+                    pushMessageToHistory('agent', data);
+                } else {
+                    // Retry also failed — surface a generic error, do not retry again.
+                    errorBanner.textContent = 'The agent encountered an error. Please try again.';
+                    errorBanner.className = 'error-banner';
+                    loadingBox.msgDiv.remove();
+                }
             } else if (res.status === 429) {
                 errorBanner.textContent = 'AI provider quota reached. Please try again later or switch to another provider.';
                 errorBanner.className = 'error-banner';
@@ -392,6 +422,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 errorBanner.className = 'error-banner';
                 loadingBox.msgDiv.remove();
             }
+
         } catch (err) {
             errorBanner.textContent = 'Unable to connect to the research server. Please make sure the backend is running.';
             errorBanner.className = 'error-banner';
