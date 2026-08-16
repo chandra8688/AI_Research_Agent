@@ -63,7 +63,13 @@ This project demonstrates several advanced AI engineering patterns:
 
 ## Demo
 
-*Add screenshots/demo GIF here when available.*
+## Demo
+
+The production deployment of AI Research Agent V1.0:
+
+![AI Research Agent V1.0 Demo](docs/images/ai-research-agent-demo.png)
+
+**Live demo:** https://ai-research-agent-sj1r.onrender.com/
 
 ---
 
