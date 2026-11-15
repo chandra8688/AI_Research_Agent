@@ -45,12 +45,43 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Markdown rendering (sanitised) ---
     // marked + DOMPurify are loaded from a CDN. If either is unavailable the answer
     // falls back to plain text, so LLM output is never inserted as unsanitised HTML.
+    const CITATION_PATTERN = /\[(WEB|LOCAL):\s*([^\]]+)\]/g;
+
+    function escapeAttr(value) {
+        return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // Turns a <cite data-kind data-label> placeholder into a chip. Web citations of the
+    // form "Title (https://url)" become links to the source.
+    function renderCitationChip(cite) {
+        const kind = cite.dataset.kind === 'web' ? 'web' : 'local';
+        const label = cite.dataset.label || '';
+        let chip;
+        const urlMatch = kind === 'web' ? label.match(/^(.*)\((https?:\/\/[^\s)]+)\)\s*$/) : null;
+        if (urlMatch && isSafeHttpUrl(urlMatch[2])) {
+            chip = document.createElement('a');
+            chip.href = urlMatch[2];
+            chip.textContent = urlMatch[1].trim() || urlMatch[2];
+        } else {
+            chip = document.createElement('span');
+            chip.textContent = label;
+        }
+        chip.className = `citation citation-${kind}`;
+        chip.title = `${kind === 'web' ? 'Web' : 'Local'} source: ${label}`;
+        cite.replaceWith(chip);
+    }
+
     function renderMarkdownInto(element, text) {
         const markdown = text || '';
         if (window.marked && window.DOMPurify) {
             try {
-                const html = window.marked.parse(markdown, { gfm: true, breaks: true });
+                // Swap citation tags for placeholders BEFORE markdown parsing; otherwise the
+                // URL inside "[WEB: Title (https://...)]" is auto-linked and the tag is split.
+                const withPlaceholders = markdown.replace(CITATION_PATTERN, (match, kind, label) =>
+                    `<cite data-kind="${kind.toLowerCase()}" data-label="${escapeAttr(label.trim())}"></cite>`);
+                const html = window.marked.parse(withPlaceholders, { gfm: true, breaks: true });
                 element.innerHTML = window.DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+                element.querySelectorAll('cite[data-kind]').forEach(renderCitationChip);
                 element.querySelectorAll('a').forEach(a => {
                     a.setAttribute('target', '_blank');
                     a.setAttribute('rel', 'noopener noreferrer');
@@ -391,7 +422,9 @@ document.addEventListener('DOMContentLoaded', () => {
             case 'reflection_error':
                 return 'Evidence check unavailable — continued with collected evidence';
             case 'claim_extraction':
-                return `Extracted ${d.count || 0} claims to verify`;
+                return `Extracted ${d.count || 0} claim${d.count === 1 ? '' : 's'} to verify`;
+            case 'grounding_skipped':
+                return 'No sources retrieved — verification skipped';
             case 'grounding_check': {
                 const score = typeof d.grounding_score === 'number' ? Math.round(d.grounding_score * 100) : null;
                 return `Grounding: ${d.supported_claims ?? 0}/${d.claim_count ?? 0} claims supported${score !== null ? ` (${score}%)` : ''}`;
@@ -477,6 +510,16 @@ document.addEventListener('DOMContentLoaded', () => {
         answerDiv.className = 'answer-content';
         renderMarkdownInto(answerDiv, data.answer);
         bubble.appendChild(answerDiv);
+
+        // Be explicit when an answer did not go through evidence verification.
+        const trace = data.trace || [];
+        const unverified = trace.some(e => e.event_type === 'grounding_skipped' || e.event_type === 'classified_as_simple_query');
+        if (unverified && !(data.sources && data.sources.length)) {
+            const note = document.createElement('div');
+            note.className = 'unverified-note';
+            note.textContent = 'Answered from the model’s own knowledge. No sources were retrieved, so this answer was not verified.';
+            bubble.appendChild(note);
+        }
 
         renderSources(bubble, data.sources);
         renderTrace(bubble, data);

@@ -135,15 +135,88 @@ def plan_research(state: GraphState):
         guidance += "- Web search should be considered. Consider using search_web.\n"
     if plan.requires_calculation:
         guidance += "- Calculation is required. Consider using calculate_product.\n"
+    needs_forced_research = settings.force_research and _should_force_research(plan)
     if not plan.requires_local_knowledge and not plan.requires_web and not plan.requires_calculation:
-        guidance += "- No specialized tools required. Allow direct answering.\n"
+        if needs_forced_research:
+            guidance += "- Supporting evidence is retrieved automatically; base your answer on it.\n"
+        else:
+            guidance += "- No specialized tools required. Allow direct answering.\n"
     guidance += ("- When you cite retrieved evidence, use [LOCAL: filename] or "
                  "[WEB: Page Title (URL)] exactly as the sources appear.\n")
 
     if agent_state.contents and agent_state.contents[-1].get("role") == "user":
         agent_state.contents[-1]["content"] += guidance
 
-    return {"agent_state": agent_state}
+    # General-knowledge questions would otherwise be answered from the model's memory
+    # with nothing to verify against, so retrieve evidence up front.
+    if needs_forced_research and plan.intent == "general_knowledge":
+        return {"agent_state": agent_state, "next_action": "forced_research"}
+    return {"agent_state": agent_state, "next_action": "agent_decide"}
+
+
+def _should_force_research(plan) -> bool:
+    """Every factual question must be answered from retrieved evidence. Calculations are
+    exempt: the calculator tool is their evidence, a web search adds nothing."""
+    return plan is not None and plan.intent != "calculation"
+
+
+def forced_research(state: GraphState):
+    """Runs one search chosen by the graph (not the model) so the answer can be grounded.
+
+    Used before the first agent step for general-knowledge questions, and as a fallback
+    when the model tries to answer a factual question without retrieving anything.
+    The evidence is handed to the model as context; it may still call tools for more.
+    """
+    agent_state = state["agent_state"]
+    prompt = state["prompt"]
+    plan = agent_state.research_plan
+    agent_state.forced_research_done = True
+
+    use_local = plan is not None and plan.requires_local_knowledge and not plan.requires_web
+    tool_name = "search_local_knowledge" if use_local else "search_web"
+    args = {"query": prompt} if use_local else {"query": prompt, "max_results": 5}
+
+    agent_state.tool_calls.append({"name": tool_name, "args": args})
+    agent_state.add_trace("tool_call", {"tool_name": tool_name, "arguments": args, "forced": True})
+    agent_state.add_trace("research_source_selected", {"source": tool_name})
+
+    tool_fn = TOOL_REGISTRY.get(tool_name)
+    try:
+        result = str(tool_fn(**args)) if tool_fn else f"Error: tool '{tool_name}' is unavailable."
+    except Exception as e:
+        result = f"Error: Tool execution failed: {str(e)}"
+    agent_state.tool_results.append({"name": tool_name, "result": result})
+    agent_state.add_trace("tool_result", {
+        "tool_name": tool_name,
+        "result_preview": result[:300] + ('...' if len(result) > 300 else '')
+    })
+
+    items = []
+    if not result.startswith("Error:"):
+        if use_local:
+            items = parse_local_evidence(result)
+            if items:
+                agent_state.retrieved_evidence.append(result)
+        else:
+            items = parse_web_evidence(result)
+    agent_state.multi_source_evidence.extend(items)
+
+    if items:
+        agent_state.add_trace("evidence_collected", {"count": len(agent_state.multi_source_evidence)})
+        message = (
+            "[SYSTEM] Evidence was retrieved automatically for this question:\n\n"
+            f"{format_combined_evidence(agent_state.multi_source_evidence)}\n\n"
+            "Answer the question using this evidence. Cite sources exactly as shown, e.g. "
+            "[WEB: Page Title (URL)] or [LOCAL: filename]. Do not add claims the evidence does "
+            "not support. You may call a tool if you need more evidence."
+        )
+    else:
+        agent_state.add_trace("forced_research_empty", {"tool_name": tool_name})
+        message = ("[SYSTEM] An automatic search returned no usable evidence. If you answer, "
+                   "keep to well-established facts.")
+    agent_state.contents.append({"role": "user", "content": message})
+
+    return {"agent_state": agent_state, "next_action": "agent_decide"}
 
 
 def agent_decide(state: GraphState):
@@ -179,6 +252,16 @@ def agent_decide(state: GraphState):
     if response.function_calls:
         agent_state.contents.append(response.model_message)
         return {"llm_response": response, "next_action": "tools", "agent_state": agent_state}
+
+    # The model answered without retrieving anything. Its draft cannot be verified, so
+    # fetch evidence once and let it answer again from that evidence.
+    if (settings.force_research
+            and not agent_state.multi_source_evidence
+            and not agent_state.forced_research_done
+            and _should_force_research(agent_state.research_plan)):
+        agent_state.add_trace("answer_without_evidence_rejected")
+        return {"llm_response": response, "next_action": "forced_research", "agent_state": agent_state}
+
     return {"llm_response": response, "next_action": "quality_check", "agent_state": agent_state}
 
 
@@ -438,8 +521,13 @@ def quality_check(state: GraphState):
 
     final_text = normalize_citation_brackets(final_text)
 
-    if state.get("is_simple", False):
-        # No evidence was retrieved on the fast path, so grounding would be meaningless.
+    if state.get("is_simple", False) or not agent_state.multi_source_evidence:
+        # Grounding checks claims against retrieved evidence. With no evidence (fast path,
+        # greetings, or the model answering from its own knowledge) every claim would score
+        # as unsupported, triggering pointless revision and rewrite calls that strip valid
+        # content. Record that the answer is unverified instead.
+        if not state.get("is_simple", False):
+            agent_state.add_trace("grounding_skipped", {"reason": "No evidence was retrieved; answer is from model knowledge."})
         agent_state.final_answer = final_text
         agent_state.add_trace("final_answer")
         agent_state.add_trace("graph_end")
@@ -554,6 +642,7 @@ workflow.add_node("execute_tools", execute_tools)
 workflow.add_node("collect_evidence", collect_evidence)
 workflow.add_node("reflection", reflection)
 workflow.add_node("force_synthesis", force_synthesis)
+workflow.add_node("forced_research", forced_research)
 workflow.add_node("fast_llm_path", fast_llm_path)
 workflow.add_node("quality_check", quality_check)
 
@@ -568,7 +657,16 @@ workflow.add_conditional_edges(
     }
 )
 
-workflow.add_edge("plan_research", "agent_decide")
+workflow.add_conditional_edges(
+    "plan_research",
+    _route_next,
+    {
+        "forced_research": "forced_research",
+        "agent_decide": "agent_decide"
+    }
+)
+
+workflow.add_edge("forced_research", "agent_decide")
 
 workflow.add_conditional_edges(
     "agent_decide",
@@ -577,6 +675,7 @@ workflow.add_conditional_edges(
         "tools": "execute_tools",
         "quality_check": "quality_check",
         "force_synthesis": "force_synthesis",
+        "forced_research": "forced_research",
         "end": END
     }
 )

@@ -182,6 +182,106 @@ class TestGraphRegressions(unittest.TestCase):
         self.assertFalse(os.path.exists("debug_answers.txt"))
 
 
+@patch("providers.get_provider")
+@patch("graph.evaluate_evidence")
+@patch("graph.TOOL_REGISTRY")
+class TestForcedResearch(unittest.TestCase):
+    """With FORCE_RESEARCH on, factual answers must be backed by retrieved evidence."""
+
+    def setUp(self):
+        self._orig = settings.force_research
+        settings.force_research = True
+
+    def tearDown(self):
+        settings.force_research = self._orig
+
+    def test_general_question_retrieves_evidence_before_answering(self, mock_registry, _eval, mock_get_provider):
+        provider = MagicMock()
+        mock_get_provider.return_value = provider
+        search = MagicMock(return_value=WEB_RESULT)
+        mock_registry.get.side_effect = {"search_web": search}.get
+        provider.generate_agent_step.return_value = AgentResponse(
+            text="RAG is evolving quickly. [WEB: RAG News (https://example.com/rag)]",
+            function_calls=[], model_message={"role": "model"})
+
+        answer, state = execute_agent_graph("Explain retrieval augmented generation")
+
+        search.assert_called_once()
+        self.assertEqual(provider.generate_agent_step.call_count, 1)  # no wasted draft
+        self.assertEqual(len(state.multi_source_evidence), 1)
+        self.assertIsNotNone(state.research_quality)  # answer was grounded
+        self.assertNotIn("grounding_skipped", [t.event_type for t in state.trace])
+        first_prompt = provider.generate_agent_step.call_args_list[0][0][0]
+        self.assertIn("Evidence was retrieved automatically", first_prompt[-1]["content"])
+
+    @patch("graph.create_research_plan")
+    def test_answer_without_tools_is_rejected_once(self, mock_plan, mock_registry, _eval, mock_get_provider):
+        """For web/local intents the model is expected to search; if it answers from memory
+        instead, the graph retrieves evidence and asks again (only once)."""
+        mock_plan.side_effect = lambda q: ResearchPlan(
+            original_query=q, intent="web_research", requires_web=True,
+            requires_local_knowledge=False, requires_calculation=False,
+            requires_multi_source_research=False)
+        provider = MagicMock()
+        mock_get_provider.return_value = provider
+        search = MagicMock(return_value=WEB_RESULT)
+        mock_registry.get.side_effect = {"search_web": search}.get
+        provider.generate_agent_step.side_effect = [
+            AgentResponse(text="From memory.", function_calls=[], model_message={"role": "model"}),
+            AgentResponse(text="Grounded. [WEB: RAG News (https://example.com/rag)]", function_calls=[], model_message={"role": "model"}),
+        ]
+
+        answer, state = execute_agent_graph("What is the latest news on RAG?")
+
+        self.assertIn("Grounded", answer)
+        search.assert_called_once()
+        self.assertIn("answer_without_evidence_rejected", [t.event_type for t in state.trace])
+
+    def test_calculations_are_not_forced_to_search(self, mock_registry, _eval, mock_get_provider):
+        provider = MagicMock()
+        mock_get_provider.return_value = provider
+        calc = MagicMock(return_value=714)
+        search = MagicMock(return_value=WEB_RESULT)
+        mock_registry.get.side_effect = {"calculate_product": calc, "search_web": search}.get
+        provider.generate_agent_step.side_effect = [
+            AgentResponse(text=None, function_calls=[ToolCall(name="calculate_product", args={"a": 42, "b": 17})],
+                          model_message={"role": "model"}),
+            AgentResponse(text="42 multiplied by 17 is 714.", function_calls=[], model_message={"role": "model"}),
+        ]
+
+        answer, _ = execute_agent_graph("Calculate 42 multiplied by 17")
+
+        self.assertIn("714", answer)
+        search.assert_not_called()
+
+    def test_empty_search_falls_back_to_unverified_answer(self, mock_registry, _eval, mock_get_provider):
+        provider = MagicMock()
+        mock_get_provider.return_value = provider
+        mock_registry.get.side_effect = {"search_web": MagicMock(return_value="No results found for the given query.")}.get
+        provider.generate_agent_step.return_value = AgentResponse(
+            text="A careful general answer.", function_calls=[], model_message={"role": "model"})
+
+        answer, state = execute_agent_graph("Explain an obscure topic")
+
+        self.assertEqual(answer, "A careful general answer.")
+        events = [t.event_type for t in state.trace]
+        self.assertIn("forced_research_empty", events)
+        self.assertIn("grounding_skipped", events)
+        self.assertEqual(provider.generate_agent_step.call_count, 1)
+
+    @patch("planning.is_simple_query", return_value=True)
+    def test_greetings_never_search(self, _simple, mock_registry, _eval, mock_get_provider):
+        provider = MagicMock()
+        mock_get_provider.return_value = provider
+        provider.generate.return_value = "Hello!"
+        search = MagicMock()
+        mock_registry.get.side_effect = {"search_web": search}.get
+
+        execute_agent_graph("Hii !")
+
+        search.assert_not_called()
+
+
 class TestCitationNormalisation(unittest.TestCase):
 
     def test_fullwidth_citation_brackets_are_normalised(self):
@@ -273,6 +373,12 @@ class TestPlannerKeywordMatching(unittest.TestCase):
     def test_substrings_do_not_trigger_keywords(self):
         self.assertFalse(create_research_plan("What is the currency of Japan?").requires_web)
         self.assertTrue(is_simple_query("What is a canvas element?"))
+
+    def test_greetings_use_the_fast_path(self):
+        """'Hii !' previously ran the full research + grounding pipeline."""
+        for greeting in ["Hii !", "hi", "Hello there!", "thanks", "Thank you.", "good morning", "ok"]:
+            self.assertTrue(is_simple_query(greeting), greeting)
+        self.assertFalse(is_simple_query("Hi, what are the latest AI agent frameworks?"))
 
     def test_time_sensitive_questions_skip_the_fast_path(self):
         self.assertFalse(is_simple_query("Who is the current CEO of OpenAI?"))

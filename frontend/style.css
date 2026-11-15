@@ -485,7 +485,18 @@ h1 {
 }
 
 .citation-web { background: var(--web-bg); color: var(--web); }
+a.citation { text-decoration: none; }
+a.citation:hover { text-decoration: underline; }
 .citation-local { background: var(--local-bg); color: var(--local); }
+
+.unverified-note {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    background: var(--surface);
+    border-radius: 6px;
+    padding: 0.4rem 0.65rem;
+    margin-top: 0.25rem;
+}
 
 /* ---------- Sources & trace ---------- */
 .section-title {
