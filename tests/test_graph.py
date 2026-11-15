@@ -243,14 +243,22 @@ class TestGraph(unittest.TestCase):
         self.assertIn("force_synthesis", trace_types)
         self.assertIn("reflection_limit_reached", trace_types)
 
-    def test_9_quality_check(self, mock_eval, mock_extract, mock_get_provider):
+    @patch("graph.TOOL_REGISTRY")
+    def test_9_quality_check(self, mock_registry, mock_eval, mock_extract, mock_get_provider):
         mock_eval.return_value = MagicMock(sufficient=True, reason="")
         # First extraction returns unsupported claims, second returns empty (valid)
         mock_extract.side_effect = [["Unsupported"], []]
-        
+
         mock_provider = MagicMock()
         mock_get_provider.return_value = mock_provider
-        
+        mock_registry.get.return_value = MagicMock(
+            return_value="[Result 1]\nTitle: Source\nURL: https://example.com\nSnippet: Some evidence.")
+
+        search = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_web", args={"query": "something"})],
+            model_message={"role": "model"}
+        )
         ans1 = AgentResponse(
             text="This claim is bad and unsupported.",
             function_calls=[],
@@ -263,8 +271,8 @@ class TestGraph(unittest.TestCase):
             model_message={"role": "model"}
         )
         
-        mock_provider.generate_agent_step.side_effect = [ans1, ans2]
-        
+        mock_provider.generate_agent_step.side_effect = [search, ans1, ans2]
+
         ans, state = execute_agent_graph("Tell me something unsupported.")
         self.assertTrue(getattr(state, "refinement_attempted", False))
         self.assertEqual(ans, "This claim is better.")
@@ -283,8 +291,8 @@ class TestGraph(unittest.TestCase):
         
         session = create_session()
         
-        ans1, state1 = execute_agent_graph("Hello", session=session)
-        ans2, state2 = execute_agent_graph("World", session=session)
+        ans1, state1 = execute_agent_graph("Explain topic one", session=session)
+        ans2, state2 = execute_agent_graph("Explain topic two", session=session)
         
         self.assertEqual(len(session.memory.get_messages()), 4)
 

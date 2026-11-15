@@ -14,13 +14,24 @@ _CALC_PATTERN = re.compile(
 )
 
 
+_SMALL_TALK = re.compile(
+    r"(hi+|hii+|hello+|hey+|yo|hola|namaste|good (morning|afternoon|evening)|"
+    r"thanks?|thank you|thx|ok(ay)?|cool|bye|goodbye)"
+    r"( there| agent| bot)?[\s!.?,:)]*"
+)
+
+
 def is_simple_query(query: str) -> bool:
     """Conservatively classifies a query as simple factual to use the fast LLM path."""
     if not query:
         return False
         
     query_lower = query.lower().strip()
-    
+
+    # Greetings and small talk never need research.
+    if _SMALL_TALK.fullmatch(query_lower):
+        return True
+
     # Too long? Probably complex.
     if len(query_lower) > 100:
         return False

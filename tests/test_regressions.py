@@ -274,6 +274,12 @@ class TestPlannerKeywordMatching(unittest.TestCase):
         self.assertFalse(create_research_plan("What is the currency of Japan?").requires_web)
         self.assertTrue(is_simple_query("What is a canvas element?"))
 
+    def test_greetings_use_the_fast_path(self):
+        """'Hii !' previously ran the full research + grounding pipeline."""
+        for greeting in ["Hii !", "hi", "Hello there!", "thanks", "Thank you.", "good morning", "ok"]:
+            self.assertTrue(is_simple_query(greeting), greeting)
+        self.assertFalse(is_simple_query("Hi, what are the latest AI agent frameworks?"))
+
     def test_time_sensitive_questions_skip_the_fast_path(self):
         self.assertFalse(is_simple_query("Who is the current CEO of OpenAI?"))
         self.assertFalse(is_simple_query("Who is the president of France?"))

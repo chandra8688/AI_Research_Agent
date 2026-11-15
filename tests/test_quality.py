@@ -10,6 +10,7 @@ from quality import (
 )
 from research import EvidenceItem
 from agent import execute_agent
+from providers import ToolCall
 
 class TestQuality(unittest.TestCase):
 
@@ -83,14 +84,44 @@ class TestQuality(unittest.TestCase):
             function_calls=[],
             model_message={"role": "model", "raw_message": "dummy"}
         )
-        mock_provider.generate_agent_step.return_value = mock_response
-
-        # Execute agent
-        ans, state = execute_agent("Analyze this data.")
-        
-        # Verify research_quality is present
-        self.assertIsNotNone(state.research_quality)
         mock_provider.generate.return_value = "Mocked grounding gate response"
+
+        with patch("graph.TOOL_REGISTRY") as mock_registry, patch("graph.evaluate_evidence") as mock_eval:
+            mock_eval.return_value = MagicMock(sufficient=True, reason="")
+            mock_registry.get.return_value = MagicMock(
+                return_value="[Result 1]\nTitle: Data\nURL: https://example.com\nSnippet: Basic data.")
+            mock_provider.generate_agent_step.side_effect = [
+                AgentResponse(text=None, function_calls=[ToolCall(name="search_web", args={"query": "data"})],
+                              model_message={"role": "model"}),
+                mock_response,
+                mock_response,  # one grounding revision pass
+            ]
+            ans, state = execute_agent("Analyze this data.")
+
+        # Verify research_quality is present when evidence was retrieved
+        self.assertIsNotNone(state.research_quality)
+
+    @patch("providers.get_provider")
+    def test_9b_no_evidence_skips_grounding(self, mock_get_provider):
+        """Answers with no retrieved evidence (e.g. greetings or model-knowledge answers)
+        must not be graded as 0% grounded and rewritten."""
+        from providers import AgentResponse
+
+        mock_provider = MagicMock()
+        mock_get_provider.return_value = mock_provider
+        mock_provider.generate_agent_step.return_value = AgentResponse(
+            text="Hello! I'm here to help with your research.",
+            function_calls=[],
+            model_message={"role": "model", "raw_message": "dummy"}
+        )
+
+        ans, state = execute_agent("Can you help me with something?")
+
+        self.assertEqual(ans, "Hello! I'm here to help with your research.")
+        self.assertIsNone(state.research_quality)
+        self.assertFalse(state.refinement_attempted)
+        self.assertIn("grounding_skipped", [t.event_type for t in state.trace])
+        mock_provider.generate.assert_not_called()  # no grounding-gate rewrite
         
     @patch("providers.get_provider")
     def test_10_refinement_guard(self, mock_get_provider):
@@ -113,16 +144,23 @@ class TestQuality(unittest.TestCase):
             model_message={"role": "model", "raw_message": "dummy2"}
         )
         
-        mock_provider.generate_agent_step.side_effect = [mock_response_1, mock_response_2]
-
-        ans, state = execute_agent("When was RAG invented?")
-        
-        # Verify it went through refinement
-        self.assertTrue(getattr(state, "refinement_attempted", False))
-        
-        # Wait, how many generate_content calls?
-        self.assertEqual(mock_provider.generate_agent_step.call_count, 2)
+        search = AgentResponse(
+            text=None,
+            function_calls=[ToolCall(name="search_web", args={"query": "RAG history"})],
+            model_message={"role": "model"}
+        )
+        mock_provider.generate_agent_step.side_effect = [search, mock_response_1, mock_response_2]
         mock_provider.generate.return_value = "Mocked grounding gate response"
+
+        with patch("graph.TOOL_REGISTRY") as mock_registry, patch("graph.evaluate_evidence") as mock_eval:
+            mock_eval.return_value = MagicMock(sufficient=True, reason="")
+            mock_registry.get.return_value = MagicMock(
+                return_value="[Result 1]\nTitle: RAG paper\nURL: https://example.com\nSnippet: Retrieval-augmented generation was introduced in 2020.")
+            ans, state = execute_agent("When was RAG invented?")
+
+        # Verify it went through exactly one refinement pass
+        self.assertTrue(getattr(state, "refinement_attempted", False))
+        self.assertEqual(mock_provider.generate_agent_step.call_count, 3)
 
     @patch("providers.get_provider")
     def test_11_apply_grounding_gate(self, mock_get_provider):

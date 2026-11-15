@@ -438,8 +438,13 @@ def quality_check(state: GraphState):
 
     final_text = normalize_citation_brackets(final_text)
 
-    if state.get("is_simple", False):
-        # No evidence was retrieved on the fast path, so grounding would be meaningless.
+    if state.get("is_simple", False) or not agent_state.multi_source_evidence:
+        # Grounding checks claims against retrieved evidence. With no evidence (fast path,
+        # greetings, or the model answering from its own knowledge) every claim would score
+        # as unsupported, triggering pointless revision and rewrite calls that strip valid
+        # content. Record that the answer is unverified instead.
+        if not state.get("is_simple", False):
+            agent_state.add_trace("grounding_skipped", {"reason": "No evidence was retrieved; answer is from model knowledge."})
         agent_state.final_answer = final_text
         agent_state.add_trace("final_answer")
         agent_state.add_trace("graph_end")
