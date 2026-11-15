@@ -45,12 +45,43 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Markdown rendering (sanitised) ---
     // marked + DOMPurify are loaded from a CDN. If either is unavailable the answer
     // falls back to plain text, so LLM output is never inserted as unsanitised HTML.
+    const CITATION_PATTERN = /\[(WEB|LOCAL):\s*([^\]]+)\]/g;
+
+    function escapeAttr(value) {
+        return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // Turns a <cite data-kind data-label> placeholder into a chip. Web citations of the
+    // form "Title (https://url)" become links to the source.
+    function renderCitationChip(cite) {
+        const kind = cite.dataset.kind === 'web' ? 'web' : 'local';
+        const label = cite.dataset.label || '';
+        let chip;
+        const urlMatch = kind === 'web' ? label.match(/^(.*)\((https?:\/\/[^\s)]+)\)\s*$/) : null;
+        if (urlMatch && isSafeHttpUrl(urlMatch[2])) {
+            chip = document.createElement('a');
+            chip.href = urlMatch[2];
+            chip.textContent = urlMatch[1].trim() || urlMatch[2];
+        } else {
+            chip = document.createElement('span');
+            chip.textContent = label;
+        }
+        chip.className = `citation citation-${kind}`;
+        chip.title = `${kind === 'web' ? 'Web' : 'Local'} source: ${label}`;
+        cite.replaceWith(chip);
+    }
+
     function renderMarkdownInto(element, text) {
         const markdown = text || '';
         if (window.marked && window.DOMPurify) {
             try {
-                const html = window.marked.parse(markdown, { gfm: true, breaks: true });
+                // Swap citation tags for placeholders BEFORE markdown parsing; otherwise the
+                // URL inside "[WEB: Title (https://...)]" is auto-linked and the tag is split.
+                const withPlaceholders = markdown.replace(CITATION_PATTERN, (match, kind, label) =>
+                    `<cite data-kind="${kind.toLowerCase()}" data-label="${escapeAttr(label.trim())}"></cite>`);
+                const html = window.marked.parse(withPlaceholders, { gfm: true, breaks: true });
                 element.innerHTML = window.DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+                element.querySelectorAll('cite[data-kind]').forEach(renderCitationChip);
                 element.querySelectorAll('a').forEach(a => {
                     a.setAttribute('target', '_blank');
                     a.setAttribute('rel', 'noopener noreferrer');

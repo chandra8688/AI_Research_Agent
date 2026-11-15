@@ -4,7 +4,7 @@
 **GitHub**: https://github.com/chandra8688/AI_Research_Agent  
 **Production URL**: https://ai-research-agent-sj1r.onrender.com/  
 **Status**: V1.0 — Feature Complete and Frozen  
-**Final Test Count**: 146 tests passing
+**Final Test Count**: 151 tests passing
 
 ---
 
@@ -14,7 +14,7 @@ AI Research Agent V1.0 is an autonomous research system that accepts a natural-l
 
 The central engineering problem it addresses is that large language models generate confident-sounding text that may go beyond what retrieved sources actually contain. The system combats this not through prompt engineering alone, but through a deterministic post-answer verification pipeline: claims are extracted from the LLM's answer, each is tested for lexical support in the evidence corpus, unsupported or conflicting claims are identified, and a secondary LLM pass rewrites those sections before the answer is shown. Every source citation is also format-validated against the actual retrieved identifiers.
 
-The system is deployed as a containerised FastAPI service on Render, served through a vanilla HTML/CSS/JavaScript frontend, and has 146 offline unit tests.
+The system is deployed as a containerised FastAPI service on Render, served through a vanilla HTML/CSS/JavaScript frontend, and has 151 offline unit tests.
 
 ---
 
@@ -55,7 +55,7 @@ The objectives that are actually reflected in the final implementation are:
 15. Abstract LLM providers so Gemini, OpenRouter, and Groq are interchangeable.
 16. Containerise the full pipeline with a build-time RAG ingestion step.
 17. Deploy to a production host with a health and readiness API.
-18. Maintain 146 offline unit tests covering the critical correctness paths.
+18. Maintain 151 offline unit tests covering the critical correctness paths.
 
 ---
 
@@ -91,7 +91,7 @@ There is no authentication or login system. There is no persistent database; all
 | Container | Docker | `python:3.12-slim`, build-time RAG init |
 | Local Dev Orchestration | Docker Compose | Environment variable passthrough |
 | Deployment | Render | Web service, free tier |
-| Testing | `unittest` (stdlib) + `httpx` + `starlette.testclient` | 146 offline tests |
+| Testing | `unittest` (stdlib) + `httpx` + `starlette.testclient` | 151 offline tests |
 
 **Not implemented in V1.0**: Kubernetes, Helm, Redis, persistent relational database, authentication/login, semantic reranking, CI/CD pipeline, streaming responses.
 
@@ -247,6 +247,8 @@ The graph uses `add_conditional_edges` throughout. Routing decisions are made by
 **`is_simple_query(query)`**: Returns `True` only if the query is ≤100 characters, starts with one of `["what is", "who is", "who invented", "where is", "what's", "who's", "when did"]`, and contains none of the complexity keywords (`"latest"`, `"current"`, `"compare"`, `"vs"`, `"evidence"`, `"research"`, etc.). This classification is deliberately conservative: most queries route through the full research pipeline.
 
 **`create_research_plan(query)`**: Applies keyword pattern matching to populate a `ResearchPlan` dataclass with boolean flags (`requires_web`, `requires_local_knowledge`, `requires_calculation`, `requires_multi_source_research`) and a string `intent`. The intent controls which system guidance is appended to the user message before the first `agent_decide` call. The plan itself is not sent to the LLM; its guidance string is injected into the conversation context.
+
+**Forced research (`graph.py:forced_research`, v1.1)**: With `FORCE_RESEARCH=true` (the default), every factual question is answered from retrieved evidence. A `general_knowledge` question triggers one graph-chosen web search *before* the first agent step. If the model tries to answer any other non-calculation question without retrieving anything, that draft is rejected once and a search is run. Greetings (fast path) and calculations (the calculator result is the evidence) are exempt. If the search returns nothing usable, the answer is returned and labelled as unverified, rather than being graded against empty evidence.
 
 **Limitation**: Planning uses keyword matching, not semantic understanding. A query about "recent AI developments" that doesn't include the exact word "current" could be misclassified. In practice the `agent_decide` LLM tends to call the appropriate tools anyway because the system prompt remains flexible.
 
@@ -560,11 +562,11 @@ The service is deployed on Render as a web service. Render builds and runs the D
 ### Unit Tests
 ```
 python -m unittest discover
-Ran 146 tests in ~10 seconds
+Ran 151 tests in ~10 seconds
 OK
 ```
 
-All 146 tests pass offline without any network calls or real API keys. Tests use `unittest.mock` to patch provider calls, vector store responses, and tool executions.
+All 151 tests pass offline without any network calls or real API keys. Tests use `unittest.mock` to patch provider calls, vector store responses, and tool executions.
 
 ### Test Files and Categories
 
@@ -737,6 +739,7 @@ The full commit history spans from initial setup to production polish. Key miles
 | Natural-language research question input | ✅ Yes | `api/routes.py`, `frontend/app.js` |
 | Simple-query fast path | ✅ Yes | `planning.py:is_simple_query`, `graph.py:fast_llm_path` |
 | Deterministic research planning | ✅ Yes | `planning.py:create_research_plan` |
+| Forced research for factual questions | ✅ Yes | `graph.py:forced_research` (`FORCE_RESEARCH`) |
 | Live web search (DuckDuckGo) | ✅ Yes | `tools.py:search_web` |
 | Local RAG retrieval (ChromaDB) | ✅ Yes | `tools.py:search_local_knowledge`, `rag/` |
 | Multi-step iterative research loop | ✅ Yes | `graph.py:agent_decide` + `execute_tools` + `collect_evidence` |
@@ -762,7 +765,7 @@ The full commit history spans from initial setup to production polish. Key miles
 | Dockerfile with build-time RAG | ✅ Yes | `Dockerfile`, `scripts/build_rag.py` |
 | Docker Compose local dev | ✅ Yes | `docker-compose.yml` |
 | Production deployment (Render) | ✅ Yes | https://ai-research-agent-sj1r.onrender.com/ |
-| 146 offline unit tests | ✅ Yes | `tests/` package |
+| 151 offline unit tests | ✅ Yes | `tests/` package |
 | LangChain integration adapter | ✅ Yes | `langchain_integration.py` |
 | Evaluation framework | ✅ Yes | `evaluation/` (live only, not in unittest suite) |
 | Semantic claim verification | ❌ No | Future work |
@@ -816,7 +819,7 @@ The following features distinguish this system from a standard "call OpenAI API,
 
 **Provider abstraction with error classification**: Three LLM providers share a common Protocol. Errors are classified as retryable or fatal, enabling principled fallback and retry without duplicating error-handling logic.
 
-**146 offline unit tests**: The core algorithms (routing, grounding, chunking, citation validation, conflict detection) are tested deterministically without live APIs. This means regressions in the correctness of grounding are caught before deployment.
+**151 offline unit tests**: The core algorithms (routing, grounding, chunking, citation validation, conflict detection) are tested deterministically without live APIs. This means regressions in the correctness of grounding are caught before deployment.
 
 ---
 
@@ -828,7 +831,7 @@ So the architecture has two parts. The first is an iterative research loop built
 
 The second part is the verification pipeline. After the agent produces an answer, I extract the factual claims from it, test each one for lexical support in the retrieved evidence, identify unsupported or conflicting claims, validate every citation tag against the actual retrieved source identifiers, and then use a secondary LLM call to rewrite just the sections that have grounding problems — while leaving the good sections alone.
 
-It's not perfect. The claim assessment uses token overlap, not semantic understanding, so it has false positives and false negatives. But it's deterministic, testable, and bounded — I wrote 146 tests for it. It's deployed on Render as a Docker container that bakes the RAG knowledge base in at build time, so there's no ingestion latency on cold start. The production URL is up and working."
+It's not perfect. The claim assessment uses token overlap, not semantic understanding, so it has false positives and false negatives. But it's deterministic, testable, and bounded — I wrote 151 tests for it. It's deployed on Render as a Docker container that bakes the RAG knowledge base in at build time, so there's no ingestion latency on cold start. The production URL is up and working."
 
 ---
 
@@ -848,7 +851,7 @@ It's not perfect. The claim assessment uses token overlap, not semantic understa
 
 **Deployment**: The Docker image runs `python scripts/build_rag.py` at build time. This loads `.txt` docs, chunks them at 500 chars with 100-char overlap using a sliding window, embeds with `all-MiniLM-L6-v2` locally on CPU, and persists to ChromaDB. At runtime, the collection is already populated — no cold-start initialisation. The image is deployed to Render. Sessions are in-memory only; the frontend handles the stale-session case with a one-shot 404 retry.
 
-**Testing**: 146 unit tests, all offline, using `unittest.mock` to patch provider and store calls. Key coverage: graph routing under all error conditions, claim cap and priority ranking, overlap thresholds, chunker strict-length guarantees (the Groq 413 regression test), citation format validation, conflict detection."
+**Testing**: 151 unit tests, all offline, using `unittest.mock` to patch provider and store calls. Key coverage: graph routing under all error conditions, claim cap and priority ranking, overlap thresholds, chunker strict-length guarantees (the Groq 413 regression test), citation format validation, conflict detection."
 
 ---
 

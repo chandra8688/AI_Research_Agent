@@ -485,6 +485,8 @@ h1 {
 }
 
 .citation-web { background: var(--web-bg); color: var(--web); }
+a.citation { text-decoration: none; }
+a.citation:hover { text-decoration: underline; }
 .citation-local { background: var(--local-bg); color: var(--local); }
 
 .unverified-note {

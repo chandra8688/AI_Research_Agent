@@ -22,6 +22,7 @@ class AgentState:
     reflection_result: Any = None
     reflection_attempts: int = 0
     refinement_attempted: bool = False
+    forced_research_done: bool = False
     pending_tool_calls: list = field(default_factory=list)
     research_plan: Any = None
     research_quality: Any = None

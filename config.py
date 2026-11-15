@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     max_agent_iterations: int = 5
     max_reflection_attempts: int = 2
     grounding_threshold: float = 0.70
+    # Retrieve evidence for every factual question, even when the model would answer
+    # from memory, so that every non-trivial answer can be grounded and verified.
+    force_research: bool = True
     
     # CORS
     cors_origins: list[str] = [

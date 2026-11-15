@@ -5,7 +5,7 @@
 ![LangGraph](https://img.shields.io/badge/LangGraph-Agentic_Workflow-orange)
 ![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)
 ![Render](https://img.shields.io/badge/Render-Deployed-000000?logo=render&logoColor=white)
-![Tests](https://img.shields.io/badge/Tests-146_Passing-success)
+![Tests](https://img.shields.io/badge/Tests-151_Passing-success)
 
 > **An autonomous research agent that gathers evidence from live web search and a local vector database, then checks every claim and citation in its answer against that evidence before returning it.**
 
@@ -93,7 +93,7 @@ All loop limits (iterations, reflection attempts, revision passes) are enforced 
 | Backend | Python 3.12, FastAPI, Uvicorn, Pydantic Settings, Tenacity |
 | Frontend | Vanilla HTML/CSS/JS (no build step), marked + DOMPurify |
 | Deployment | Docker, Docker Compose, Render |
-| Testing | `unittest`, FastAPI `TestClient` — 146 offline tests |
+| Testing | `unittest`, FastAPI `TestClient` — 151 offline tests |
 
 ---
 
@@ -135,6 +135,7 @@ All settings are environment variables (or `.env`); see [`.env.example`](.env.ex
 | `MAX_AGENT_ITERATIONS` | `5` | Tool-calling steps per question |
 | `MAX_REFLECTION_ATTEMPTS` | `2` | Evidence-sufficiency checks before forced synthesis |
 | `GROUNDING_THRESHOLD` | `0.70` | Grounding score below which the rewrite gate runs |
+| `FORCE_RESEARCH` | `true` | Retrieve evidence for every factual question, even ones the model could answer from memory, so the answer can be verified. Greetings and calculations are exempt |
 
 ---
 
@@ -155,7 +156,7 @@ or `docker compose up --build` (reads keys from your shell environment). The con
 python -m unittest discover
 ```
 
-146 tests run offline in about 10 seconds: providers, vector stores and tools are mocked, so no API keys or network are needed. `tests/test_regressions.py` pins every bug fixed in the v1.1 audit.
+151 tests run offline in about 10 seconds: providers, vector stores and tools are mocked, so no API keys or network are needed. `tests/test_regressions.py` pins every bug fixed in the v1.1 audit.
 
 ---
 
