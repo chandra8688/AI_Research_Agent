@@ -182,6 +182,19 @@ class TestGraphRegressions(unittest.TestCase):
         self.assertFalse(os.path.exists("debug_answers.txt"))
 
 
+class TestCitationNormalisation(unittest.TestCase):
+
+    def test_fullwidth_citation_brackets_are_normalised(self):
+        """gpt-oss models answer with 【WEB: ...】, which the validator and UI ignored."""
+        from graph import normalize_citation_brackets
+        text = "Born in 1815【WEB: Ada Lovelace - Wikipedia (https://en.wikipedia.org/wiki/Ada_Lovelace)】."
+        self.assertEqual(
+            normalize_citation_brackets(text),
+            "Born in 1815[WEB: Ada Lovelace - Wikipedia (https://en.wikipedia.org/wiki/Ada_Lovelace)].")
+        self.assertEqual(normalize_citation_brackets("See 【LOCAL: rag_overview.txt】"), "See [LOCAL: rag_overview.txt]")
+        self.assertEqual(normalize_citation_brackets("no citations"), "no citations")
+
+
 class TestProviderMessageConversion(unittest.TestCase):
 
     def test_openai_messages_keep_history_and_map_parallel_ids(self):

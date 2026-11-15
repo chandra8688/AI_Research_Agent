@@ -35,6 +35,15 @@ def _is_provider_error(e: Exception) -> bool:
     return isinstance(e, ProviderError) or type(e).__name__ in _PROVIDER_ERROR_NAMES
 
 
+_FULLWIDTH_CITATION = re.compile(r"【\s*(WEB|LOCAL)\s*:\s*([^】]*)】")
+
+
+def normalize_citation_brackets(text: str) -> str:
+    """Some models (e.g. gpt-oss via Groq) write citations as 【WEB: ...】. Convert them
+    to the [WEB: ...] form so citation validation and the UI recognise them."""
+    return _FULLWIDTH_CITATION.sub(lambda m: f"[{m.group(1)}: {m.group(2).strip()}]", text)
+
+
 def _get_primary_provider():
     from providers import get_provider
     return get_provider(settings.llm_primary_provider or settings.llm_provider)
@@ -426,6 +435,8 @@ def quality_check(state: GraphState):
     if not isinstance(final_text, str) or not final_text.strip():
         agent_state.add_trace("agent_error", {"error": "Agent produced an empty final answer."})
         return {"error": "Agent produced an empty final answer.", "next_action": "end"}
+
+    final_text = normalize_citation_brackets(final_text)
 
     if state.get("is_simple", False):
         # No evidence was retrieved on the fast path, so grounding would be meaningless.

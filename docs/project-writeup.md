@@ -4,7 +4,7 @@
 **GitHub**: https://github.com/chandra8688/AI_Research_Agent  
 **Production URL**: https://ai-research-agent-sj1r.onrender.com/  
 **Status**: V1.0 — Feature Complete and Frozen  
-**Final Test Count**: 143 tests passing
+**Final Test Count**: 144 tests passing
 
 ---
 
@@ -14,7 +14,7 @@ AI Research Agent V1.0 is an autonomous research system that accepts a natural-l
 
 The central engineering problem it addresses is that large language models generate confident-sounding text that may go beyond what retrieved sources actually contain. The system combats this not through prompt engineering alone, but through a deterministic post-answer verification pipeline: claims are extracted from the LLM's answer, each is tested for lexical support in the evidence corpus, unsupported or conflicting claims are identified, and a secondary LLM pass rewrites those sections before the answer is shown. Every source citation is also format-validated against the actual retrieved identifiers.
 
-The system is deployed as a containerised FastAPI service on Render, served through a vanilla HTML/CSS/JavaScript frontend, and has 143 offline unit tests.
+The system is deployed as a containerised FastAPI service on Render, served through a vanilla HTML/CSS/JavaScript frontend, and has 144 offline unit tests.
 
 ---
 
@@ -55,7 +55,7 @@ The objectives that are actually reflected in the final implementation are:
 15. Abstract LLM providers so Gemini, OpenRouter, and Groq are interchangeable.
 16. Containerise the full pipeline with a build-time RAG ingestion step.
 17. Deploy to a production host with a health and readiness API.
-18. Maintain 143 offline unit tests covering the critical correctness paths.
+18. Maintain 144 offline unit tests covering the critical correctness paths.
 
 ---
 
@@ -91,7 +91,7 @@ There is no authentication or login system. There is no persistent database; all
 | Container | Docker | `python:3.12-slim`, build-time RAG init |
 | Local Dev Orchestration | Docker Compose | Environment variable passthrough |
 | Deployment | Render | Web service, free tier |
-| Testing | `unittest` (stdlib) + `httpx` + `starlette.testclient` | 143 offline tests |
+| Testing | `unittest` (stdlib) + `httpx` + `starlette.testclient` | 144 offline tests |
 
 **Not implemented in V1.0**: Kubernetes, Helm, Redis, persistent relational database, authentication/login, semantic reranking, CI/CD pipeline, streaming responses.
 
@@ -560,11 +560,11 @@ The service is deployed on Render as a web service. Render builds and runs the D
 ### Unit Tests
 ```
 python -m unittest discover
-Ran 143 tests in ~10 seconds
+Ran 144 tests in ~10 seconds
 OK
 ```
 
-All 143 tests pass offline without any network calls or real API keys. Tests use `unittest.mock` to patch provider calls, vector store responses, and tool executions.
+All 144 tests pass offline without any network calls or real API keys. Tests use `unittest.mock` to patch provider calls, vector store responses, and tool executions.
 
 ### Test Files and Categories
 
@@ -702,6 +702,7 @@ A full audit found and fixed these defects. Each has a regression test in `tests
 | `main.py` referenced an unimported `errors` module | Any non-runtime CLI error raised `NameError` | Catch `RetryableProviderError` explicitly |
 | Debug file written on every grounded answer | `debug_answers.txt` written to the working directory in production | Replaced with `logger.debug` |
 | Numeric conflict heuristic too loose | Any snippet sharing two words and a different number was flagged as a conflict, triggering needless rewrites | Requires ≥ 50% of the claim's tokens to match |
+| Full-width citation brackets ignored | gpt-oss models (via Groq) cite as `【WEB: …】`, so citations were reported as missing and the UI showed raw text | `quality_check` normalises them to `[WEB: …]` before validation (found during live testing) |
 
 The frontend was also reworked: answers render as sanitised markdown (marked + DOMPurify) with citation chips, web sources are clickable, the execution trace is a collapsible summary, the sidebar works on mobile, and the loading state shows progress.
 
@@ -761,7 +762,7 @@ The full commit history spans from initial setup to production polish. Key miles
 | Dockerfile with build-time RAG | ✅ Yes | `Dockerfile`, `scripts/build_rag.py` |
 | Docker Compose local dev | ✅ Yes | `docker-compose.yml` |
 | Production deployment (Render) | ✅ Yes | https://ai-research-agent-sj1r.onrender.com/ |
-| 143 offline unit tests | ✅ Yes | `tests/` package |
+| 144 offline unit tests | ✅ Yes | `tests/` package |
 | LangChain integration adapter | ✅ Yes | `langchain_integration.py` |
 | Evaluation framework | ✅ Yes | `evaluation/` (live only, not in unittest suite) |
 | Semantic claim verification | ❌ No | Future work |
@@ -815,7 +816,7 @@ The following features distinguish this system from a standard "call OpenAI API,
 
 **Provider abstraction with error classification**: Three LLM providers share a common Protocol. Errors are classified as retryable or fatal, enabling principled fallback and retry without duplicating error-handling logic.
 
-**143 offline unit tests**: The core algorithms (routing, grounding, chunking, citation validation, conflict detection) are tested deterministically without live APIs. This means regressions in the correctness of grounding are caught before deployment.
+**144 offline unit tests**: The core algorithms (routing, grounding, chunking, citation validation, conflict detection) are tested deterministically without live APIs. This means regressions in the correctness of grounding are caught before deployment.
 
 ---
 
@@ -827,7 +828,7 @@ So the architecture has two parts. The first is an iterative research loop built
 
 The second part is the verification pipeline. After the agent produces an answer, I extract the factual claims from it, test each one for lexical support in the retrieved evidence, identify unsupported or conflicting claims, validate every citation tag against the actual retrieved source identifiers, and then use a secondary LLM call to rewrite just the sections that have grounding problems — while leaving the good sections alone.
 
-It's not perfect. The claim assessment uses token overlap, not semantic understanding, so it has false positives and false negatives. But it's deterministic, testable, and bounded — I wrote 143 tests for it. It's deployed on Render as a Docker container that bakes the RAG knowledge base in at build time, so there's no ingestion latency on cold start. The production URL is up and working."
+It's not perfect. The claim assessment uses token overlap, not semantic understanding, so it has false positives and false negatives. But it's deterministic, testable, and bounded — I wrote 144 tests for it. It's deployed on Render as a Docker container that bakes the RAG knowledge base in at build time, so there's no ingestion latency on cold start. The production URL is up and working."
 
 ---
 
@@ -847,7 +848,7 @@ It's not perfect. The claim assessment uses token overlap, not semantic understa
 
 **Deployment**: The Docker image runs `python scripts/build_rag.py` at build time. This loads `.txt` docs, chunks them at 500 chars with 100-char overlap using a sliding window, embeds with `all-MiniLM-L6-v2` locally on CPU, and persists to ChromaDB. At runtime, the collection is already populated — no cold-start initialisation. The image is deployed to Render. Sessions are in-memory only; the frontend handles the stale-session case with a one-shot 404 retry.
 
-**Testing**: 143 unit tests, all offline, using `unittest.mock` to patch provider and store calls. Key coverage: graph routing under all error conditions, claim cap and priority ranking, overlap thresholds, chunker strict-length guarantees (the Groq 413 regression test), citation format validation, conflict detection."
+**Testing**: 144 unit tests, all offline, using `unittest.mock` to patch provider and store calls. Key coverage: graph routing under all error conditions, claim cap and priority ranking, overlap thresholds, chunker strict-length guarantees (the Groq 413 regression test), citation format validation, conflict detection."
 
 ---
 
