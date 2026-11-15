@@ -11,14 +11,14 @@
 
 **Live demo:** https://ai-research-agent-sj1r.onrender.com/ &nbsp;·&nbsp; (free tier: the first request after idle can take 30–60 s)
 
-![AI Research Agent answering from local documents, with citation chips in a comparison table](docs/images/ai-research-agent-demo.png)
+![AI Research Agent answering from local documents, with citation chips in a comparison table](docs/images/ai-research-agent-demo-v1.2.png)
 
 <details>
 <summary><b>See how the answer was verified</b>: sources and the execution trace</summary>
 
 <br>
 
-![Sources list and execution trace: local search, evidence check, claim grounding, citation validation, revision and rewrite](docs/images/ai-research-agent-verification.png)
+![Sources list and execution trace: local search, evidence check, claim grounding, citation validation, revision and rewrite](docs/images/ai-research-agent-verification-v1.2.png)
 
 </details>
 
