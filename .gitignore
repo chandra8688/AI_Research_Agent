@@ -1,4 +1,4 @@
-# Environments
+# Environments / secrets
 .env
 .venv/
 env/
@@ -9,5 +9,15 @@ ENV/
 __pycache__/
 *.py[cod]
 *$py.class
+.pytest_cache/
+
+# Local data and model caches (rebuilt by scripts/build_rag.py)
 .chroma_db/
 .hf_cache/
+
+# Debug output / local tooling
+debug_answers.txt
+.claude/
+.vscode/
+.idea/
+.DS_Store

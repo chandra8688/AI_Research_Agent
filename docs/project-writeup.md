@@ -4,7 +4,7 @@
 **GitHub**: https://github.com/chandra8688/AI_Research_Agent  
 **Production URL**: https://ai-research-agent-sj1r.onrender.com/  
 **Status**: V1.0 — Feature Complete and Frozen  
-**Final Test Count**: 125 tests passing
+**Final Test Count**: 143 tests passing
 
 ---
 
@@ -14,7 +14,7 @@ AI Research Agent V1.0 is an autonomous research system that accepts a natural-l
 
 The central engineering problem it addresses is that large language models generate confident-sounding text that may go beyond what retrieved sources actually contain. The system combats this not through prompt engineering alone, but through a deterministic post-answer verification pipeline: claims are extracted from the LLM's answer, each is tested for lexical support in the evidence corpus, unsupported or conflicting claims are identified, and a secondary LLM pass rewrites those sections before the answer is shown. Every source citation is also format-validated against the actual retrieved identifiers.
 
-The system is deployed as a containerised FastAPI service on Render, served through a vanilla HTML/CSS/JavaScript frontend, and has 125 offline unit tests.
+The system is deployed as a containerised FastAPI service on Render, served through a vanilla HTML/CSS/JavaScript frontend, and has 143 offline unit tests.
 
 ---
 
@@ -55,7 +55,7 @@ The objectives that are actually reflected in the final implementation are:
 15. Abstract LLM providers so Gemini, OpenRouter, and Groq are interchangeable.
 16. Containerise the full pipeline with a build-time RAG ingestion step.
 17. Deploy to a production host with a health and readiness API.
-18. Maintain 125 offline unit tests covering the critical correctness paths.
+18. Maintain 143 offline unit tests covering the critical correctness paths.
 
 ---
 
@@ -91,7 +91,7 @@ There is no authentication or login system. There is no persistent database; all
 | Container | Docker | `python:3.12-slim`, build-time RAG init |
 | Local Dev Orchestration | Docker Compose | Environment variable passthrough |
 | Deployment | Render | Web service, free tier |
-| Testing | `unittest` (stdlib) + `httpx` + `starlette.testclient` | 125 offline tests |
+| Testing | `unittest` (stdlib) + `httpx` + `starlette.testclient` | 143 offline tests |
 
 **Not implemented in V1.0**: Kubernetes, Helm, Redis, persistent relational database, authentication/login, semantic reranking, CI/CD pipeline, streaming responses.
 
@@ -380,7 +380,7 @@ A claim is marked `supported=True` if at least one evidence item meets the 0.35 
 ### Conflict Detection (`quality.py:detect_conflict`)
 
 Two surface-level heuristics:
-1. **Numerical contradiction**: claim and evidence contain numbers, their number sets are disjoint, and they share ≥ 2 meaningful tokens → conflict.
+1. **Numerical contradiction**: claim and evidence contain numbers, their number sets are disjoint, and they share ≥ 2 meaningful tokens covering at least 50% of the claim's tokens (i.e. the evidence is about the same thing) → conflict.
 2. **Negation mismatch**: one of `"does not"`, `"is not"`, `"cannot"`, `"will not"` is present in the claim but not the evidence (or vice versa), and token overlap ≥ 40% → conflict.
 
 ### Grounding Score
@@ -428,7 +428,7 @@ The system is honest about this in the README and docs. It is not semantic fact-
 
 5. **Fallback**: If all retries fail, the original chunk is returned unmodified. The pipeline does not abort.
 
-6. **Reassembly**: All chunk outputs (rewritten or original) are joined with `\n\n`.
+6. **Reassembly**: Each chunk remembers the separator that preceded it in the original answer (`\n\n`, `\n`, or nothing for a hard split), and chunks are re-joined with exactly those separators. This keeps a long table or list intact even when it spans several chunks.
 
 ### What the Grounding Gate Does Not Do
 
@@ -560,29 +560,30 @@ The service is deployed on Render as a web service. Render builds and runs the D
 ### Unit Tests
 ```
 python -m unittest discover
-Ran 125 tests in ~3.5 seconds
+Ran 143 tests in ~10 seconds
 OK
 ```
 
-All 125 tests pass offline without any network calls or real API keys. Tests use `unittest.mock` to patch provider calls, vector store responses, and tool executions.
+All 143 tests pass offline without any network calls or real API keys. Tests use `unittest.mock` to patch provider calls, vector store responses, and tool executions.
 
 ### Test Files and Categories
 
 | File | Focus |
 |---|---|
-| `test_graph.py` | LangGraph node routing, iteration limits, force_synthesis, grounding gate triggering |
-| `test_quality.py` | `extract_claims`, `assess_claims`, `validate_citations`, `_chunk_text`, conflict detection |
-| `test_agent_providers.py` | Provider fallback logic, error classification |
-| `test_api_integration.py` | FastAPI endpoint contract: 200, 400, 404, 429, 503 responses |
-| `test_config.py` | Settings loading, environment variable override |
-| `test_llm_fallback.py` | Fallback chain under retryable and fatal errors |
-| `test_planning.py` | Intent classification, simple-query routing |
-| `test_research.py` | Evidence parsing from tool output strings |
-| `test_retrieval_fallback.py` | ChromaDB → Pinecone fallback, `FallbackVectorStore` |
-| `test_retrieval_fusion.py` | RRF scoring, deduplication in `FusionVectorStore` |
-| `test_langchain.py` | LangChain adapter, prompt templates |
-| `test_structured_llm.py` | Structured output parsing |
-| `test_validate_citations.py` | Citation format and source matching |
+| `tests/test_graph.py` | LangGraph node routing, iteration limits, force_synthesis, grounding gate triggering |
+| `tests/test_quality.py` | `extract_claims`, `assess_claims`, `validate_citations`, `_chunk_text`, conflict detection |
+| `tests/test_agent_providers.py` | Provider fallback logic, error classification |
+| `tests/test_api_integration.py` | FastAPI endpoint contract: 200, 400, 404, 429, 503 responses |
+| `tests/test_config.py` | Settings loading, environment variable override |
+| `tests/test_llm_fallback.py` | Fallback chain under retryable and fatal errors |
+| `tests/test_planning.py` | Intent classification, simple-query routing |
+| `tests/test_research.py` | Evidence parsing from tool output strings |
+| `tests/test_retrieval_fallback.py` | ChromaDB → Pinecone fallback, `FallbackVectorStore` |
+| `tests/test_retrieval_fusion.py` | RRF scoring, deduplication in `FusionVectorStore` |
+| `tests/test_langchain.py` | LangChain adapter, prompt templates |
+| `tests/test_structured_llm.py` | Structured output parsing |
+| `tests/test_validate_citations.py` | Citation format and source matching |
+| `tests/test_regressions.py` | v1.1 audit fixes: multi-source crash, parallel tool calls, history, iteration limit, layout-preserving grounding gate |
 
 ### What the Tests Prove
 - Graph routing is correct under all combinations of error, simple, and complex paths.
@@ -653,7 +654,7 @@ def _chunk_text(text: str, max_length: int = 1500) -> list[str]:
                         _add_to_chunks(line[i:i + max_length], "")
 ```
 
-The delimiter length is included in the accumulation check, guaranteeing no returned chunk ever exceeds `max_length`. A regression test (`test_quality.py:test_19_chunk_text_robustness`) asserts that chunks from single-newline-only text and from 2,000-character lines are all strictly ≤ 1,500 characters.
+The delimiter length is included in the accumulation check, guaranteeing no returned chunk ever exceeds `max_length`. A regression test (`tests/test_quality.py:test_19_chunk_text_robustness`) asserts that chunks from single-newline-only text and from 2,000-character lines are all strictly ≤ 1,500 characters.
 
 ### 22.3 Unnecessary Research Hedging
 
@@ -681,6 +682,28 @@ All other grounding requirements, conflict detection, citation rules, and accura
 **Fix**:
 - `_MAX_CLAIMS = 20` constant added to `quality.py`. Claims are ranked by unique meaningful-token count and the top 20 retained.
 - The unconditional sleep was removed. Rate-limit back-off is handled exclusively by `tenacity`'s exponential back-off, which only applies when a `RetryableProviderError` is actually raised.
+
+### 22.5 v1.1 Code Audit (November 2026)
+
+A full audit found and fixed these defects. Each has a regression test in `tests/test_regressions.py`.
+
+| Bug | Impact | Fix |
+|---|---|---|
+| `collect_evidence` referenced an undefined variable (`res_mod`) on the multi-source path | Any query that needed **both** local and web evidence crashed with `NameError` → HTTP 500 after the first search | Return the raw tool result to the agent; reflection runs once both channels are present |
+| Only `function_calls[0]` was executed, but the model turn kept all calls | When a model requested tools in parallel, the next provider call failed (Gemini needs one function response per call; OpenAI-style APIs need one tool message per `tool_call_id`) | `execute_tools` runs every call; responses are sent together, each with its call id |
+| Conversation history was dropped | Gemini/Groq/OpenRouter converters ignored prior assistant messages stored as plain text, and the fast path sent only the latest question, so follow-ups ("when was she born?") lost context | Providers convert plain `model`/`assistant` messages; the fast path includes the transcript |
+| Fast-path errors were not routed to END | A provider error (e.g. 429) on a simple question surfaced as a `KeyError`/500 instead of the mapped 429/503 | Conditional edge from `fast_llm_path` |
+| Iteration limit discarded gathered evidence | Hitting `max_agent_iterations` after research returned HTTP 500 | Route to `force_synthesis` when evidence exists |
+| Reflection failure failed the whole request | A malformed JSON verdict from the judge LLM caused HTTP 500 | Reflection is advisory: on error, continue to synthesis and trace `reflection_error` |
+| Grounding gate re-joined chunks with blank lines | A long markdown table split across chunks became two tables (the second without a header, so it stopped rendering) | Chunks keep their original separators and are re-joined exactly |
+| Planner used substring matching with bare `-`, `/`, `+` | "state-of-the-art" was classified as a **calculation**, "currency" as **web** research, "vs" fired inside "canvas" | Whole-word matching; calculation requires an arithmetic expression or verb |
+| Embedding model reloaded on every local search | Several seconds (and Hugging Face Hub requests) added to every query | Model cached per process; Docker sets `HF_HUB_OFFLINE=1` |
+| `/chat` returned only local sources | Web sources never appeared in the API response or UI | Sources built from structured evidence, with `type` and `url` |
+| `main.py` referenced an unimported `errors` module | Any non-runtime CLI error raised `NameError` | Catch `RetryableProviderError` explicitly |
+| Debug file written on every grounded answer | `debug_answers.txt` written to the working directory in production | Replaced with `logger.debug` |
+| Numeric conflict heuristic too loose | Any snippet sharing two words and a different number was flagged as a conflict, triggering needless rewrites | Requires ≥ 50% of the claim's tokens to match |
+
+The frontend was also reworked: answers render as sanitised markdown (marked + DOMPurify) with citation chips, web sources are clickable, the execution trace is a collapsible summary, the sidebar works on mobile, and the loading state shows progress.
 
 ---
 
@@ -738,7 +761,7 @@ The full commit history spans from initial setup to production polish. Key miles
 | Dockerfile with build-time RAG | ✅ Yes | `Dockerfile`, `scripts/build_rag.py` |
 | Docker Compose local dev | ✅ Yes | `docker-compose.yml` |
 | Production deployment (Render) | ✅ Yes | https://ai-research-agent-sj1r.onrender.com/ |
-| 125 offline unit tests | ✅ Yes | `test_*.py` files |
+| 143 offline unit tests | ✅ Yes | `tests/` package |
 | LangChain integration adapter | ✅ Yes | `langchain_integration.py` |
 | Evaluation framework | ✅ Yes | `evaluation/` (live only, not in unittest suite) |
 | Semantic claim verification | ❌ No | Future work |
@@ -792,7 +815,7 @@ The following features distinguish this system from a standard "call OpenAI API,
 
 **Provider abstraction with error classification**: Three LLM providers share a common Protocol. Errors are classified as retryable or fatal, enabling principled fallback and retry without duplicating error-handling logic.
 
-**125 offline unit tests**: The core algorithms (routing, grounding, chunking, citation validation, conflict detection) are tested deterministically without live APIs. This means regressions in the correctness of grounding are caught before deployment.
+**143 offline unit tests**: The core algorithms (routing, grounding, chunking, citation validation, conflict detection) are tested deterministically without live APIs. This means regressions in the correctness of grounding are caught before deployment.
 
 ---
 
@@ -804,7 +827,7 @@ So the architecture has two parts. The first is an iterative research loop built
 
 The second part is the verification pipeline. After the agent produces an answer, I extract the factual claims from it, test each one for lexical support in the retrieved evidence, identify unsupported or conflicting claims, validate every citation tag against the actual retrieved source identifiers, and then use a secondary LLM call to rewrite just the sections that have grounding problems — while leaving the good sections alone.
 
-It's not perfect. The claim assessment uses token overlap, not semantic understanding, so it has false positives and false negatives. But it's deterministic, testable, and bounded — I wrote 125 tests for it. It's deployed on Render as a Docker container that bakes the RAG knowledge base in at build time, so there's no ingestion latency on cold start. The production URL is up and working."
+It's not perfect. The claim assessment uses token overlap, not semantic understanding, so it has false positives and false negatives. But it's deterministic, testable, and bounded — I wrote 143 tests for it. It's deployed on Render as a Docker container that bakes the RAG knowledge base in at build time, so there's no ingestion latency on cold start. The production URL is up and working."
 
 ---
 
@@ -824,7 +847,7 @@ It's not perfect. The claim assessment uses token overlap, not semantic understa
 
 **Deployment**: The Docker image runs `python scripts/build_rag.py` at build time. This loads `.txt` docs, chunks them at 500 chars with 100-char overlap using a sliding window, embeds with `all-MiniLM-L6-v2` locally on CPU, and persists to ChromaDB. At runtime, the collection is already populated — no cold-start initialisation. The image is deployed to Render. Sessions are in-memory only; the frontend handles the stale-session case with a one-shot 404 retry.
 
-**Testing**: 125 unit tests, all offline, using `unittest.mock` to patch provider and store calls. Key coverage: graph routing under all error conditions, claim cap and priority ranking, overlap thresholds, chunker strict-length guarantees (the Groq 413 regression test), citation format validation, conflict detection."
+**Testing**: 143 unit tests, all offline, using `unittest.mock` to patch provider and store calls. Key coverage: graph routing under all error conditions, claim cap and priority ranking, overlap thresholds, chunker strict-length guarantees (the Groq 413 regression test), citation format validation, conflict detection."
 
 ---
 

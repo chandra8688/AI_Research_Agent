@@ -63,7 +63,7 @@ By default, the RAG system reads from local directories to build its index.
 
 Validate the architecture via the offline test suite before running the API:
 ```bash
-python -m unittest discover -p "test_*.py"
+python -m unittest discover
 ```
 *Note: All tests execute entirely offline via mocks and do not consume your API quotas.*
 

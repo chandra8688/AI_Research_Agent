@@ -104,7 +104,8 @@ Submit a research query and receive a grounded answer.
   "iterations": 2,
   "tool_calls": 3,
   "sources": [
-    { "source": "rag_overview.txt", "chunk_index": "0" }
+    { "type": "local", "source": "rag_overview.txt", "chunk_index": "0" },
+    { "type": "web", "source": "What is RAG?", "url": "https://example.com/rag" }
   ],
   "trace": [
     {
@@ -127,21 +128,19 @@ Submit a research query and receive a grounded answer.
 | `answer` | string | The final grounded answer |
 | `iterations` | int | Number of agent loop iterations used |
 | `tool_calls` | int | Total number of tool calls made |
-| `sources` | array or null | Local knowledge sources cited (from `retrieved_evidence`; does not include web sources) |
+| `sources` | array or null | Every evidence source retrieved (deduplicated). Local entries have `type: "local"`, `source` (filename) and `chunk_index`; web entries have `type: "web"`, `source` (page title) and `url` |
 | `trace` | array | Full execution trace with event types and details |
-
-**Note on `sources`**: The `sources` field in the response is populated from `state.retrieved_evidence`, which contains only the raw local knowledge search results. Web sources appear inside the `answer` text as `[WEB: ...]` citations. This is a known inconsistency in the V1.0 response schema.
 
 **Error responses:**
 
 | Status | Condition |
 |---|---|
 | 400 | Empty message |
-| 400 | Message exceeds `max_message_length` |
+| 422 | Message exceeds `max_message_length` (request schema validation) |
 | 404 | `session_id` provided but session not found |
 | 429 | Provider rate limit exceeded (HTTP 429 from upstream) |
 | 500 | Runtime error during agent execution |
-| 502 | Fatal provider error (bad request to upstream) |
+| 502 | Fatal provider error (e.g. bad request or invalid API key upstream) |
 | 503 | Provider transient network failure |
 
 **curl:**
