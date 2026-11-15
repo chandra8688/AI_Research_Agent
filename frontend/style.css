@@ -462,6 +462,16 @@ h1 {
     padding: 0.45rem 0.65rem;
     text-align: left;
     vertical-align: top;
+    /* The bubble uses overflow-wrap:anywhere for long URLs; inside tables that lets the
+       browser squeeze columns until words break mid-word ("Aspec/t"). Break only at
+       word boundaries here, and give the label column room. */
+    overflow-wrap: break-word;
+    word-break: normal;
+}
+
+.answer-content th:first-child,
+.answer-content td:first-child {
+    min-width: 7.5rem;
 }
 
 .answer-content th {
