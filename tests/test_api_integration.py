@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 from api_server import app
 from unittest.mock import patch, MagicMock
 from state import AgentState, TraceEvent
+from research import EvidenceItem
 import unittest
 
 client = TestClient(app)
@@ -13,7 +14,7 @@ class TestApiIntegration(unittest.TestCase):
         response = client.get("/")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"<!DOCTYPE html>", response.content)
-        self.assertIn(b"AI RESEARCH AGENT", response.content)
+        self.assertIn(b"<h1>AI Research Agent</h1>", response.content)
         
     def test_2_health(self):
         # TEST 2 - Health
@@ -28,7 +29,12 @@ class TestApiIntegration(unittest.TestCase):
         mock_state = AgentState(query="What is RAG?")
         mock_state.iteration = 1
         mock_state.tool_calls = [{"name": "search_local_knowledge"}]
-        mock_state.retrieved_evidence = ["[Evidence 1]\nSource: docs.txt (Chunk 0)\nDistance: 0.1\nText: Data"]
+        mock_state.multi_source_evidence = [
+            EvidenceItem(content="Data", source="docs.txt", source_type="local", metadata={"chunk_index": "0"}),
+            EvidenceItem(content="Web data", source="RAG Guide (https://example.com/rag)", source_type="web",
+                         metadata={"title": "RAG Guide", "url": "https://example.com/rag"}),
+            EvidenceItem(content="Dup", source="docs.txt", source_type="local", metadata={"chunk_index": "0"}),
+        ]
         mock_state.trace = [
             TraceEvent(timestamp=0, event_type="agent_start", iteration=1, details={"query": "What is RAG?"}),
             TraceEvent(timestamp=1, event_type="tool_call", iteration=1, details={"tool_name": "search_local_knowledge"})
@@ -45,9 +51,11 @@ class TestApiIntegration(unittest.TestCase):
         
         # Verify sources parsed correctly
         self.assertIsNotNone(data["sources"])
-        self.assertEqual(len(data["sources"]), 1)
+        self.assertEqual(len(data["sources"]), 2)  # duplicate local chunk removed
         self.assertEqual(data["sources"][0]["source"], "docs.txt")
         self.assertEqual(data["sources"][0]["chunk_index"], "0")
+        self.assertEqual(data["sources"][1]["type"], "web")
+        self.assertEqual(data["sources"][1]["url"], "https://example.com/rag")
         
         # Verify trace parsed correctly
         self.assertIsNotNone(data["trace"])

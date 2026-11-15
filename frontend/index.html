@@ -3,55 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="An autonomous research agent that searches the web and a local knowledge base, then verifies every claim and citation before answering.">
     <title>AI Research Agent</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cline x1='21' y1='21' x2='16.65' y2='16.65'/%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="app-layout">
-        <aside class="sidebar" id="sidebar">
+        <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+        <aside class="sidebar" id="sidebar" aria-label="Conversation history">
             <div class="sidebar-header">
-                <button id="newChatBtn" class="new-chat-btn">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <button id="newChatBtn" class="new-chat-btn" type="button">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     New Chat
                 </button>
             </div>
-            <div id="historyList" class="history-list">
-                <!-- History groups go here -->
+            <div id="historyList" class="history-list"></div>
+            <div class="sidebar-footer">
+                <a href="https://github.com/chandra8688/AI_Research_Agent" target="_blank" rel="noopener noreferrer">View source on GitHub</a>
             </div>
         </aside>
 
-        <div class="container main-view">
+        <div class="main-view">
             <header class="header">
                 <div class="header-top">
-                    <h1>AI RESEARCH AGENT</h1>
-                    <div class="health-indicator" id="healthIndicator">
+                    <div class="header-title">
+                        <button id="sidebarToggle" class="sidebar-toggle" type="button" aria-label="Toggle conversation history">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+                        </button>
+                        <div>
+                            <h1>AI Research Agent</h1>
+                            <p class="subtitle">Research &bull; Retrieve &bull; Verify &bull; Answer</p>
+                        </div>
+                    </div>
+                    <div class="health-indicator" id="healthIndicator" aria-live="polite">
                         <span class="status-dot unknown"></span>
                         <span class="status-text">Checking status...</span>
                     </div>
                 </div>
-                <p class="subtitle">Research &bull; Retrieve &bull; Reason &bull; Answer</p>
             </header>
 
             <main class="main-content">
-                <div id="chatHistory" class="chat-history">
-                    <!-- Messages will appear here -->
+                <div class="chat-scroll">
+                    <section id="emptyState" class="empty-state">
+                        <h2>What would you like to research?</h2>
+                        <p>The agent searches the web and its local knowledge base, checks whether the evidence is sufficient, and verifies each claim and citation before answering.</p>
+                        <div class="examples">
+                            <button type="button" class="example-chip" data-prompt="What does the local documentation say about RAG?">What does the local documentation say about RAG?</button>
+                            <button type="button" class="example-chip" data-prompt="What are the latest developments in AI agents?">What are the latest developments in AI agents?</button>
+                            <button type="button" class="example-chip" data-prompt="According to my local documents, how does fine-tuning differ from RAG?">How does fine-tuning differ from RAG (local docs)?</button>
+                            <button type="button" class="example-chip" data-prompt="Calculate 42 multiplied by 17">Calculate 42 multiplied by 17</button>
+                        </div>
+                    </section>
+                    <div id="chatHistory" class="chat-history" aria-live="polite"></div>
                 </div>
 
                 <div class="input-container">
-                    <label for="messageInput" class="input-label">Ask your research question</label>
+                    <label for="messageInput" class="visually-hidden">Ask your research question</label>
                     <div class="input-box">
-                        <textarea id="messageInput" placeholder="What does the documentation say about RAG?" rows="3"></textarea>
+                        <textarea id="messageInput" placeholder="Ask a research question…" rows="1"></textarea>
+                        <button id="askBtn" class="ask-btn" type="button">Ask Agent</button>
                     </div>
-                    <div class="button-row">
-                        <div id="errorBanner" class="error-banner hidden"></div>
-                        <button id="askBtn" class="ask-btn">Ask Agent</button>
-                    </div>
+                    <div id="errorBanner" class="error-banner hidden" role="alert"></div>
+                    <p class="input-hint">Enter to send · Shift+Enter for a new line · Answers are checked against retrieved sources, but the checks are keyword-based, so verify important facts.</p>
                 </div>
             </main>
         </div>
     </div>
-    
+
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

@@ -31,10 +31,16 @@ COPY . .
 ENV HF_HOME=/app/.hf_cache
 RUN python scripts/build_rag.py
 
+# The embedding model is baked in: never call the Hugging Face Hub at runtime
+ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
+
 EXPOSE 8000
 
-CMD ["uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Render injects $PORT; default to 8000 locally
+CMD ["sh", "-c", "uvicorn api_server:app --host 0.0.0.0 --port ${PORT:-8000}"]
 ```
+
+(Abridged; see the [Dockerfile](../Dockerfile) for the exact file.)
 
 ### Build-time RAG Initialisation
 
@@ -47,34 +53,15 @@ The `RUN python scripts/build_rag.py` step runs during the Docker image build, n
 
 **Result**: At container startup there is no embedding model download and no knowledge base initialisation delay. The vector store is immediately queryable.
 
-> If the `docs/` directory contains no `.txt` files, `build_rag.py` completes silently with an empty knowledge base. The agent will fall back to web-only research.
+> If the `docs/` directory contains no `.txt` files, `build_rag.py` exits with a non-zero status and the image build fails, so an empty knowledge base can never be deployed by accident.
 
 ### docker-compose.yml
 
-```yaml
-version: '3.8'
+[`docker-compose.yml`](../docker-compose.yml) builds the image, maps port 8000, passes every provider key and model setting through from your shell (or a `.env` file next to it), and adds a `/health` healthcheck.
 
-services:
-  ai-agent:
-    build: .
-    container_name: ai-research-agent
-    ports:
-      - "8000:8000"
-    environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - PINECONE_API_KEY=${PINECONE_API_KEY:-}
-      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
-      - VECTOR_DB=${VECTOR_DB:-chroma}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+```bash
+docker compose up --build
 ```
-
-Environment variables are read from the host `.env` file.
 
 ### Build and run locally
 

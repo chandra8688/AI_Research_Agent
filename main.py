@@ -76,22 +76,18 @@ def main():
     except ValueError as e:
         print(f"\n[Agent Error]: {e}")
         sys.exit(1)
+    except RetryableProviderError as e:
+        # Must come before RuntimeError: provider errors subclass RuntimeError.
+        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+            print("\nThe LLM provider's quota is currently exhausted.")
+            print("Please try again after the quota resets.")
+        else:
+            print(f"\n[Transient Provider Error]: {e}")
+        sys.exit(1)
     except RuntimeError as e:
         print(f"\n[Agent Runtime Error]: {e}")
         sys.exit(1)
-    except errors.APIError as e:
-        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-            print("\nGemini API quota is currently exhausted.")
-            print("Please try again after the quota resets.")
-            sys.exit(1)
-        else:
-            print(f"\n[Gemini API Error]: {e}")
-            sys.exit(1)
     except Exception as e:
-        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-            print("\nGemini API quota is currently exhausted.")
-            print("Please try again after the quota resets.")
-            sys.exit(1)
         print(f"\n[Unexpected Error]: {e}")
         sys.exit(1)
 

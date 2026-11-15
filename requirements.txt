@@ -1,14 +1,26 @@
-# Project dependencies
+# Install CPU-only PyTorch first (see README), then: pip install -r requirements.txt
+
+# LLM providers
 google-genai
-python-dotenv
-pydantic
+groq
+
+# Agent orchestration
+langgraph
+langchain-core
+tenacity
+
+# Retrieval
 ddgs
 sentence-transformers
 chromadb
 pinecone
+
+# API
 fastapi
 uvicorn
+pydantic
 pydantic-settings
-langgraph
-langchain-core
-groq
+python-dotenv
+
+# Tests (FastAPI TestClient)
+httpx

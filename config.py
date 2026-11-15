@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     llm_model: str = "openai/gpt-oss-20b:free"
     
     gemini_api_key: str | None = None
+    gemini_model: str = "gemini-3.5-flash"
     openrouter_api_key: str | None = None
     groq_api_key: str | None = None
     groq_model: str = "openai/gpt-oss-120b"

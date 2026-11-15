@@ -1,4 +1,3 @@
-import os
 import json
 from pydantic import BaseModel
 import groq
@@ -113,56 +112,10 @@ class GroqProvider:
 
     def generate_agent_step(self, messages: list[dict], tools: list[dict]) -> "AgentResponse":
         from . import AgentResponse, ToolCall
-        import copy
+        from ._openai_compat import to_openai_messages, to_openai_tools
 
-        def lowercase_types(schema):
-            if isinstance(schema, dict):
-                if "type" in schema and isinstance(schema["type"], str):
-                    schema["type"] = schema["type"].lower()
-                for v in schema.values():
-                    lowercase_types(v)
-            elif isinstance(schema, list):
-                for item in schema:
-                    lowercase_types(item)
-
-        groq_tools = []
-        if tools:
-            for t in tools:
-                params = copy.deepcopy(t["parameters"])
-                lowercase_types(params)
-                
-                groq_tools.append({
-                    "type": "function",
-                    "function": {
-                        "name": t["name"],
-                        "description": t["description"],
-                        "parameters": params
-                    }
-                })
-
-        groq_messages = []
-        last_tool_call_id = "unknown_id"
-
-        for msg in messages:
-            if msg.get("role") == "user":
-                if "function_responses" in msg:
-                    for resp in msg["function_responses"]:
-                        groq_messages.append({
-                            "role": "tool",
-                            "tool_call_id": last_tool_call_id,
-                            "name": resp["name"],
-                            "content": str(resp["response"].get("result", ""))
-                        })
-                else:
-                    groq_messages.append({"role": "user", "content": msg["content"]})
-            elif msg.get("role") == "model":
-                if "raw_message" in msg:
-                    raw = msg["raw_message"]
-                    if "role" not in raw:
-                        raw["role"] = "assistant"
-                    groq_messages.append(raw)
-                    if "tool_calls" in raw and raw["tool_calls"]:
-                        last_tool_call_id = raw["tool_calls"][0]["id"]
+        groq_tools = to_openai_tools(tools)
+        groq_messages = to_openai_messages(messages)
 
         try:
             kwargs = {
@@ -183,10 +136,10 @@ class GroqProvider:
                     if tc.type == "function":
                         args_str = tc.function.arguments
                         try:
-                            args_dict = json.loads(args_str)
-                        except:
+                            args_dict = json.loads(args_str) if args_str else {}
+                        except json.JSONDecodeError:
                             args_dict = {}
-                        function_calls.append(ToolCall(name=tc.function.name, args=args_dict))
+                        function_calls.append(ToolCall(name=tc.function.name, args=args_dict, id=tc.id))
 
             raw_message = {
                 "role": "assistant",
