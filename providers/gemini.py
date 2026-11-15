@@ -1,4 +1,3 @@
-import os
 from google import genai
 from google.genai import errors
 from google.genai import types
@@ -10,7 +9,7 @@ class GeminiProvider:
         self.api_key = settings.gemini_api_key
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY environment variable is missing or empty.")
-        self.model = "gemini-3.5-flash"
+        self.model = settings.gemini_model
 
     def generate(self, prompt: str) -> str:
         try:
@@ -78,21 +77,26 @@ class GeminiProvider:
         
         contents = []
         for msg in messages:
-            if msg.get("role") == "user":
+            role = msg.get("role")
+            if role == "user":
                 if "function_responses" in msg:
                     parts = []
                     for resp in msg["function_responses"]:
-                        parts.append(types.Part.from_function_response(
+                        parts.append(types.Part(function_response=types.FunctionResponse(
                             name=resp["name"],
-                            response=resp["response"]
-                        ))
+                            response=resp["response"],
+                            id=resp.get("id"),
+                        )))
                     contents.append(types.Content(role="user", parts=parts))
                 else:
                     contents.append(types.Content(role="user", parts=[types.Part.from_text(text=msg["content"])]))
-            elif msg.get("role") == "model":
-                if "raw_message" in msg:
+            elif role in ("model", "assistant"):
+                if msg.get("raw_message") is not None:
                     contents.append(msg["raw_message"])
-                    
+                elif msg.get("content"):
+                    # Plain prior answers (conversation history, forced synthesis drafts).
+                    contents.append(types.Content(role="model", parts=[types.Part.from_text(text=msg["content"])]))
+
         try:
             client = genai.Client(api_key=self.api_key)
             response = client.models.generate_content(
@@ -104,9 +108,10 @@ class GeminiProvider:
             function_calls = []
             if response.function_calls:
                 for fc in response.function_calls:
-                    function_calls.append(ToolCall(name=fc.name, args=dict(fc.args)))
-                    
-            text = response.text if hasattr(response, 'text') else None
+                    function_calls.append(ToolCall(name=fc.name, args=dict(fc.args or {}), id=getattr(fc, "id", None)))
+
+            # Reading .text on a function-call-only response logs a warning; only read it when needed.
+            text = None if function_calls else response.text
             
             raw_message = None
             if response.candidates:

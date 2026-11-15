@@ -1,15 +1,13 @@
-import os
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 from pydantic import BaseModel
-
-from dataclasses import dataclass
-from typing import Any
 
 @dataclass
 class ToolCall:
     name: str
     args: dict[str, Any]
+    id: str | None = None
 
 @dataclass
 class AgentResponse:

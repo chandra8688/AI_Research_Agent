@@ -20,15 +20,21 @@ def health_check():
 
 @router.get("/ready", response_model=ReadyResponse)
 def readiness_check():
-    provider = settings.llm_provider.lower().strip()
+    provider = (settings.llm_primary_provider or settings.llm_provider).lower().strip()
     vector_db = settings.vector_db.lower().strip()
-    
+
     # Check Provider
-    if provider == "gemini" and not settings.gemini_api_key:
-        raise HTTPException(status_code=503, detail="Gemini provider selected but no GEMINI_API_KEY found.")
-    elif provider == "openrouter" and not settings.openrouter_api_key:
-        raise HTTPException(status_code=503, detail="OpenRouter provider selected but no OPENROUTER_API_KEY found.")
-        
+    required_keys = {
+        "gemini": ("GEMINI_API_KEY", settings.gemini_api_key),
+        "openrouter": ("OPENROUTER_API_KEY", settings.openrouter_api_key),
+        "groq": ("GROQ_API_KEY", settings.groq_api_key),
+    }
+    if provider not in required_keys:
+        raise HTTPException(status_code=503, detail=f"Unsupported LLM provider configured: '{provider}'.")
+    key_name, key_value = required_keys[provider]
+    if not key_value:
+        raise HTTPException(status_code=503, detail=f"{provider} provider selected but no {key_name} found.")
+
     # Check Vector DB
     if vector_db == "pinecone" and not settings.pinecone_api_key:
         raise HTTPException(status_code=503, detail="Pinecone vector DB selected but no PINECONE_API_KEY found.")
@@ -45,6 +51,25 @@ def get_config():
         max_reflection_attempts=settings.max_reflection_attempts,
         max_message_length=settings.max_message_length
     )
+
+def _collect_sources(state) -> list[dict]:
+    """Deduplicated list of every evidence source (local chunks AND web pages) used."""
+    sources = []
+    seen = set()
+    for ev in state.multi_source_evidence:
+        if ev.source_type == "local":
+            chunk = str(ev.metadata.get("chunk_index", ""))
+            key = ("local", ev.source, chunk)
+            entry = {"type": "local", "source": ev.source, "chunk_index": chunk}
+        else:
+            url = ev.metadata.get("url", "")
+            key = ("web", url or ev.source)
+            entry = {"type": "web", "source": ev.metadata.get("title") or ev.source, "url": url}
+        if key not in seen:
+            seen.add(key)
+            sources.append(entry)
+    return sources
+
 
 @router.post("/chat", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest):
@@ -70,18 +95,8 @@ def chat_endpoint(request: ChatRequest):
         # Note: execute_agent returns (final_answer, state)
         final_answer, state = execute_agent(message, session=session)
         
-        # Extract sources from retrieved evidence
-        import re
-        sources = []
-        seen = set()
-        for ev in state.retrieved_evidence:
-            matches = re.findall(r"Source:\s*(.*?)\s*\(Chunk\s*([^)]+)\)", ev)
-            for src, chunk in matches:
-                key = f"{src}_{chunk}"
-                if key not in seen:
-                    seen.add(key)
-                    sources.append({"source": src.strip(), "chunk_index": chunk.strip()})
-                    
+        sources = _collect_sources(state)
+
         # Extract trace
         trace_list = []
         for t in state.trace:
@@ -111,10 +126,9 @@ def chat_endpoint(request: ChatRequest):
             raise HTTPException(status_code=503, detail="The AI provider experienced a transient network issue. Please retry your request.")
             
         if isinstance(e, FatalProviderError) or type(e).__name__ == "FatalProviderError":
+            # Upstream (LLM provider) failure, e.g. bad request or invalid API key.
             logger.error(f"Fatal provider error: {e}")
-            if "400" in str(e):
-                raise HTTPException(status_code=502, detail="The AI provider encountered a fatal error processing the request.")
-            raise HTTPException(status_code=500, detail="The AI provider encountered a fatal error processing the request.")
+            raise HTTPException(status_code=502, detail="The AI provider encountered a fatal error processing the request.")
             
         if isinstance(e, RuntimeError):
             logger.error(f"Runtime error during agent execution: {e}")

@@ -1,7 +1,10 @@
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Set
 from research import EvidenceItem
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class ClaimAssessment:
@@ -102,9 +105,13 @@ def detect_conflict(claim: str, evidence_text: str) -> bool:
     ev_nums = extract_numbers(evidence_lower)
     
     if claim_nums and ev_nums and claim_nums.isdisjoint(ev_nums):
+        # Only a contradiction if the evidence is about the same thing. Requiring half
+        # of the claim's tokens to match (not just any two) stops unrelated snippets
+        # that happen to contain other numbers from being flagged as conflicts.
         c_tok = get_meaningful_tokens(claim_lower)
         e_tok = get_meaningful_tokens(evidence_lower)
-        if len(c_tok.intersection(e_tok)) >= 2:
+        shared = len(c_tok.intersection(e_tok))
+        if shared >= 2 and shared / len(c_tok) >= 0.5:
             return True
 
     negations = ["does not", "is not", "cannot", "will not"]
@@ -208,32 +215,50 @@ def validate_citations(answer: str, evidence: list[EvidenceItem]) -> list[str]:
             
     return invalid
 
-def _chunk_text(text: str, max_length: int = 1500) -> list[str]:
-    """Split text into chunks strictly under max_length, gracefully handling newlines."""
-    chunks = []
+def _chunk_text_with_separators(text: str, max_length: int = 1500) -> list[tuple[str, str]]:
+    """Split text into chunks of at most max_length characters.
 
-    def _add_to_chunks(piece: str, delimiter: str = "\n\n"):
+    Returns (separator, chunk) pairs where `separator` is the exact text that preceded
+    the chunk in the original ("" for the first chunk). Joining separator + chunk for
+    every pair reproduces the original layout, so a table or list that is split across
+    chunks is NOT broken apart by extra blank lines when the answer is reassembled.
+
+    Splitting is hierarchical: paragraphs (blank lines), then single lines inside
+    oversized paragraphs, then a hard character split inside oversized lines.
+    """
+    PARA, LINE = "\n\n", "\n"
+    chunks: list[list[str]] = []  # each entry: [separator, chunk]
+
+    def _add(piece: str, delimiter: str):
         if not piece:
             return
         if not chunks:
-            chunks.append(piece)
-        elif len(chunks[-1]) + len(piece) + len(delimiter) <= max_length:
-            chunks[-1] += delimiter + piece
+            chunks.append(["", piece])
+        elif len(chunks[-1][1]) + len(delimiter) + len(piece) <= max_length:
+            chunks[-1][1] += delimiter + piece
         else:
-            chunks.append(piece)
+            chunks.append([delimiter, piece])
 
-    for paragraph in text.split("\n\n"):
+    for paragraph in text.split(PARA):
         if len(paragraph) <= max_length:
-            _add_to_chunks(paragraph, "\n\n")
-        else:
-            for line in paragraph.split("\n"):
-                if len(line) <= max_length:
-                    _add_to_chunks(line, "\n")
-                else:
-                    for i in range(0, len(line), max_length):
-                        _add_to_chunks(line[i:i + max_length], "")
+            _add(paragraph, PARA)
+            continue
+        first_line = True
+        for line in paragraph.split(LINE):
+            line_delim = PARA if first_line else LINE
+            first_line = False
+            if len(line) <= max_length:
+                _add(line, line_delim)
+                continue
+            for i in range(0, len(line), max_length):
+                _add(line[i:i + max_length], line_delim if i == 0 else "")
 
-    return chunks
+    return [(sep, chunk) for sep, chunk in chunks]
+
+
+def _chunk_text(text: str, max_length: int = 1500) -> list[str]:
+    """Split text into chunks strictly under max_length, gracefully handling newlines."""
+    return [chunk for _, chunk in _chunk_text_with_separators(text, max_length)]
 
 def _is_claim_relevant(claim: str, chunk: str) -> bool:
     c_tokens = get_meaningful_tokens(claim)
@@ -253,8 +278,8 @@ def apply_grounding_gate(answer: str, report: ResearchQualityReport, evidence: l
     provider_name = settings.llm_primary_provider or settings.llm_provider
     provider = get_provider(provider_name)
     
-    chunks = _chunk_text(answer, max_length=1500)
-    rewritten_chunks = []
+    chunks = _chunk_text_with_separators(answer, max_length=1500)
+    rewritten_chunks = []  # (separator, text) pairs
     from providers.errors import RetryableProviderError
     from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
@@ -266,14 +291,14 @@ def apply_grounding_gate(answer: str, report: ResearchQualityReport, evidence: l
     def _generate_with_retry(prompt: str) -> str:
         return provider.generate(prompt)
 
-    for chunk in chunks:
+    for separator, chunk in chunks:
         # Find relevant unsupported claims and conflicts for this chunk
         chunk_unsupported = [c for c in report.unsupported_claims if _is_claim_relevant(c, chunk)]
         chunk_conflicts = [c for c in report.conflicts_detected if _is_claim_relevant(c, chunk)]
         
         # If no issues found in this chunk, skip rewriting
         if not chunk_unsupported and not chunk_conflicts:
-            rewritten_chunks.append(chunk)
+            rewritten_chunks.append((separator, chunk))
             continue
             
         if len(chunk_unsupported) > 3:
@@ -313,12 +338,11 @@ def apply_grounding_gate(answer: str, report: ResearchQualityReport, evidence: l
             # (min=3s, max=35s) whenever a RetryableProviderError is raised.
             rewritten = _generate_with_retry(prompt)
             if rewritten and isinstance(rewritten, str) and rewritten.strip():
-                rewritten_chunks.append(rewritten.strip())
+                rewritten_chunks.append((separator, rewritten.strip()))
             else:
-                rewritten_chunks.append(chunk)
+                rewritten_chunks.append((separator, chunk))
         except Exception as e:
-            import logging
-            logging.getLogger(__name__).warning(f"Grounding gate LLM call failed for chunk: {e}")
-            rewritten_chunks.append(chunk)
-            
-    return "\n\n".join(rewritten_chunks)
+            logger.warning(f"Grounding gate LLM call failed for chunk: {e}")
+            rewritten_chunks.append((separator, chunk))
+
+    return "".join(sep + text for sep, text in rewritten_chunks)

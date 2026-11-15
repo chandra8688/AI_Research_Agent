@@ -1,6 +1,8 @@
-import os
+import logging
+
 from pydantic import BaseModel
-import tools
+
+logger = logging.getLogger(__name__)
 
 def call_llm(prompt: str) -> str:
     """Calls the configured LLM API (Gemini or OpenRouter) with the given prompt and returns the text response."""
@@ -9,7 +11,7 @@ def call_llm(prompt: str) -> str:
     from providers.errors import RetryableProviderError, FatalProviderError
     
     primary_name = settings.llm_primary_provider or settings.llm_provider
-    print(f"[LLM] Primary provider: {primary_name}")
+    logger.debug("Primary provider: %s", primary_name)
     primary_provider = get_provider(primary_name)
     
     try:
@@ -18,13 +20,13 @@ def call_llm(prompt: str) -> str:
         if not settings.llm_fallback_enabled:
             raise
             
-        print(f"[LLM] Primary provider failed: {str(e)}")
-        print(f"[LLM] Falling back to: {settings.llm_fallback_provider}")
+        logger.warning("Primary provider failed: %s", e)
+        logger.warning("Falling back to: %s", settings.llm_fallback_provider)
         
         try:
             fallback_provider = get_provider(settings.llm_fallback_provider)
             response = fallback_provider.generate(prompt)
-            print("[LLM] Fallback provider succeeded")
+            logger.info("Fallback provider succeeded")
             return response
         except Exception as fallback_e:
             raise RuntimeError(f"Both providers failed.\nPrimary error: {str(e)}\nFallback error: {str(fallback_e)}")
@@ -39,7 +41,7 @@ def call_llm_structured(prompt: str, schema: type[BaseModel]) -> BaseModel:
     from providers.errors import RetryableProviderError, FatalProviderError
     
     primary_name = settings.llm_primary_provider or settings.llm_provider
-    print(f"[LLM] Primary provider (structured): {primary_name}")
+    logger.debug("Primary provider (structured): %s", primary_name)
     primary_provider = get_provider(primary_name)
     
     try:
@@ -48,13 +50,13 @@ def call_llm_structured(prompt: str, schema: type[BaseModel]) -> BaseModel:
         if not settings.llm_fallback_enabled:
             raise RuntimeError(str(e))
             
-        print(f"[LLM] Primary provider structured failed: {str(e)}")
-        print(f"[LLM] Falling back to (structured): {settings.llm_fallback_provider}")
+        logger.warning("Primary provider (structured) failed: %s", e)
+        logger.warning("Falling back to (structured): %s", settings.llm_fallback_provider)
         
         try:
             fallback_provider = get_provider(settings.llm_fallback_provider)
             response = fallback_provider.generate_structured(prompt, schema)
-            print("[LLM] Fallback provider structured succeeded")
+            logger.info("Fallback provider (structured) succeeded")
             return response
         except Exception as fallback_e:
             raise RuntimeError(f"Both providers failed.\nPrimary error: {str(e)}\nFallback error: {str(fallback_e)}")

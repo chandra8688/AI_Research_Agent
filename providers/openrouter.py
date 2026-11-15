@@ -1,9 +1,11 @@
-import os
 import json
 import urllib.request
 import urllib.error
 import http.client
 from pydantic import BaseModel
+
+# Free-tier models can be slow; never let a request hang the agent forever.
+REQUEST_TIMEOUT_SECONDS = 120
 
 class OpenRouterProvider:
     def __init__(self):
@@ -12,6 +14,14 @@ class OpenRouterProvider:
         if not self.api_key:
             raise ValueError("OPENROUTER_API_KEY environment variable is missing or empty.")
         self.model = settings.llm_model
+
+    def _headers(self) -> dict:
+        return {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/chandra8688/AI_Research_Agent",
+            "X-Title": "AI Research Agent",
+        }
 
     def generate(self, prompt: str) -> str:
         url = "https://openrouter.ai/api/v1/chat/completions"
@@ -24,22 +34,15 @@ class OpenRouterProvider:
             ]
         }
         
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/google/ai-research-agent",
-            "X-Title": "AI Research Agent"
-        }
-        
         data = json.dumps(payload).encode('utf-8')
-        req = urllib.request.Request(url, data=data, headers=headers)
+        req = urllib.request.Request(url, data=data, headers=self._headers())
         
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as response:
                 result = json.loads(response.read().decode('utf-8'))
                 
                 if 'choices' in result and len(result['choices']) > 0:
-                    return result['choices'][0]['message']['content']
+                    return result['choices'][0]['message'].get('content') or ""
                 else:
                     raise RuntimeError(f"Malformed OpenRouter response: {result}")
         except urllib.error.HTTPError as e:
@@ -55,6 +58,9 @@ class OpenRouterProvider:
         except http.client.IncompleteRead as e:
             from .errors import RetryableProviderError
             raise RetryableProviderError(f"OpenRouter connection dropped: {str(e)}")
+        except TimeoutError as e:
+            from .errors import RetryableProviderError
+            raise RetryableProviderError(f"OpenRouter request timed out: {str(e)}")
         except Exception as e:
             from .errors import FatalProviderError
             raise FatalProviderError(f"Unexpected error during OpenRouter LLM call: {str(e)}")
@@ -137,58 +143,11 @@ class OpenRouterProvider:
 
     def generate_agent_step(self, messages: list[dict], tools: list[dict]) -> "AgentResponse":
         from . import AgentResponse, ToolCall
-        import json
-        import urllib.request
-        import urllib.error
-        import http.client
-        import copy
-        
-        def lowercase_types(schema):
-            if isinstance(schema, dict):
-                if "type" in schema and isinstance(schema["type"], str):
-                    schema["type"] = schema["type"].lower()
-                for v in schema.values():
-                    lowercase_types(v)
-            elif isinstance(schema, list):
-                for item in schema:
-                    lowercase_types(item)
-                    
-        openrouter_tools = []
-        for t in tools:
-            params = copy.deepcopy(t["parameters"])
-            lowercase_types(params)
-            
-            openrouter_tools.append({
-                "type": "function",
-                "function": {
-                    "name": t["name"],
-                    "description": t["description"],
-                    "parameters": params
-                }
-            })
-            
-        or_messages = []
-        last_tool_call_id = "unknown_id"
-        
-        for msg in messages:
-            if msg.get("role") == "user":
-                if "function_responses" in msg:
-                    for resp in msg["function_responses"]:
-                        or_messages.append({
-                            "role": "tool",
-                            "tool_call_id": last_tool_call_id,
-                            "name": resp["name"],
-                            "content": str(resp["response"].get("result", ""))
-                        })
-                else:
-                    or_messages.append({"role": "user", "content": msg["content"]})
-            elif msg.get("role") == "model":
-                if "raw_message" in msg:
-                    raw = msg["raw_message"]
-                    or_messages.append(raw)
-                    if "tool_calls" in raw and raw["tool_calls"]:
-                        last_tool_call_id = raw["tool_calls"][0]["id"]
-                        
+        from ._openai_compat import to_openai_messages, to_openai_tools
+
+        openrouter_tools = to_openai_tools(tools)
+        or_messages = to_openai_messages(messages)
+
         payload = {
             "model": self.model,
             "messages": or_messages,
@@ -198,15 +157,12 @@ class OpenRouterProvider:
         req = urllib.request.Request(
             "https://openrouter.ai/api/v1/chat/completions",
             data=json.dumps(payload).encode('utf-8'),
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            },
+            headers=self._headers(),
             method="POST"
         )
         
         try:
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as response:
                 result = json.loads(response.read().decode('utf-8'))
                 
             choice = result["choices"][0]
@@ -218,10 +174,10 @@ class OpenRouterProvider:
                     if tc["type"] == "function":
                         args_str = tc["function"]["arguments"]
                         try:
-                            args_dict = json.loads(args_str)
-                        except:
+                            args_dict = json.loads(args_str) if args_str else {}
+                        except json.JSONDecodeError:
                             args_dict = {}
-                        function_calls.append(ToolCall(name=tc["function"]["name"], args=args_dict))
+                        function_calls.append(ToolCall(name=tc["function"]["name"], args=args_dict, id=tc.get("id")))
                         
             return AgentResponse(
                 text=msg_obj.get("content"),
@@ -241,6 +197,9 @@ class OpenRouterProvider:
         except http.client.IncompleteRead as e:
             from .errors import RetryableProviderError
             raise RetryableProviderError(f"OpenRouter connection dropped: {str(e)}")
+        except TimeoutError as e:
+            from .errors import RetryableProviderError
+            raise RetryableProviderError(f"OpenRouter request timed out: {str(e)}")
         except Exception as e:
             from .errors import FatalProviderError
             raise FatalProviderError(f"Unexpected error during OpenRouter tool call: {str(e)}")

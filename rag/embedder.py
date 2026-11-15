@@ -1,4 +1,6 @@
 import os
+from functools import lru_cache
+
 import numpy as np
 
 # Safely default HF_HOME to a local directory so the downloaded model
@@ -14,6 +16,16 @@ from rag.loader import Document
 # CPU-only, no API key required.
 MODEL_NAME = "all-MiniLM-L6-v2"
 EMBEDDING_DIM = 384
+
+
+@lru_cache(maxsize=1)
+def _get_model() -> SentenceTransformer:
+    """Loads the embedding model once per process.
+
+    Loading takes seconds; doing it on every local-knowledge search added that
+    latency to every query.
+    """
+    return SentenceTransformer(MODEL_NAME)
 
 
 def embed_chunks(chunks: list[Document]) -> list[np.ndarray]:
@@ -33,7 +45,7 @@ def embed_chunks(chunks: list[Document]) -> list[np.ndarray]:
     if not chunks:
         return []
 
-    model = SentenceTransformer(MODEL_NAME)
+    model = _get_model()
 
     texts = [chunk.content for chunk in chunks]
 
